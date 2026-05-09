@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import copy
 import difflib
 import glob
 import json
@@ -13,8 +13,7 @@ import urllib.error
 import urllib.request
 import glob as globlib
 from urllib.parse import urlparse
-from typing import List, Dict, Any
-
+from typing import List, Dict, Any, Optional
 
 MANGO_KEY = os.environ.get("MANGO_KEY")
 MANGO_API_URL = os.environ.get("MANGO_API_URL")
@@ -22,7 +21,7 @@ MANGO_MODEL = os.environ.get("MANGO_MODEL")
 MANGO_MAX_CONTEXT = int(os.environ.get("MANGO_MAX_CONTEXT", 128000))
 
 project_root = os.getcwd()
-base_persist_dir = os.path.join(project_root, '.mango')
+base_persist_dir = os.path.join(project_root, '.mangocli')
 
 # ANSI colors
 RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
@@ -97,21 +96,15 @@ class Printer:
     def separator(self):
         self._write_line(f"{DIM}{'─' * min(os.get_terminal_size().columns, 80)}{RESET}")
 
-    def thinking(self, content: str, expanded: bool = True):
+    def thinking(self, content: str):
         self.section("Thinking")
-        if expanded:
-            for line in content.splitlines():
-                self._write_line("  " + _c(line, GREY))
-        else:
-            self._write_line("  " + _c("(hidden)", GREY))
+        for line in content.splitlines():
+            self._write_line("  " + _c(line, GREY))
 
-    def output(self, content: str, expanded: bool = True):
+    def output(self, content: str):
         self.section("Output")
-        if expanded:
-            for line in content.splitlines():
-                self._write_line("  " + _c(line, GREY))
-        else:
-            self._write_line("  " + _c("(hidden)", GREY))
+        for line in content.splitlines():
+            self._write_line("  " + _c(line, GREY))
 
     def token_usage(self, iteration: int, input_tokens: int, output_tokens: int, context_tokens: int, max_context: int):
         def fmt(n):
@@ -172,6 +165,7 @@ class Printer:
                     self._render_spinner_frame(frame)
                 time.sleep(0.1)
                 i += 1
+
         self._spinner_thread = threading.Thread(
             target=run,
             daemon=True
@@ -194,9 +188,10 @@ console = Printer()
 # --- i18n
 
 
-# --- Init
+# --- Init dir, Base data ---
 def initialize_system():
-    pass
+    if os.path.exists(base_persist_dir):
+        os.mkdir(base_persist_dir)
 
 
 def helper():
@@ -381,16 +376,148 @@ def tool_schema():
     return result
 
 
-def load_messages():
-    return []
+# --- Context manager: () ---
+class ContextManager:
+    def __init__(self):
+        self.messages: List[Dict] = []
+        self.white_tool_list = []
 
+        self.auto_compact_threshold = int(MANGO_MAX_CONTEXT * 0.8)
+        self.auto_compact_disabled = False
+        self.continuous_failures = 0
+        self.max_failures = 3
 
-def save_messages():
-    pass
+    def __len__(self):
+        return len(self.messages)
 
+    def disabled_compact(self):
+        self.auto_compact_disabled = True
 
-def auto_compact():
-    pass
+    def enabled_compact(self):
+        self.auto_compact_disabled = False
+
+    def set_max_failures(self, n: int = 3):
+        self.max_failures = n
+
+    def append_system(self, content: str):
+        self.messages.append({"role": "system", "content": content})
+
+    def append_user(self, content: str):
+        self.messages.append({"role": "user", "content": content, "ts": int(time.time())})
+
+    def append_assistant(self, content: dict):
+        content.update({"ts": int(time.time())})
+        self.messages.append(content)
+
+    def append_tool(self, tool_call_id: str, content: str):
+        self.messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": content, "ts": int(time.time())})
+
+    def load(self, persist_file: str):
+        if os.path.exists(persist_file):
+            with open(persist_file, "r", encoding="utf-8") as f:
+                self.messages = json.load(f)
+
+    def save(self, persist_file: str):
+        with open(persist_file, "w", encoding="utf-8") as fp:
+            fp.write(json.dumps(self.messages, indent=2, ensure_ascii=False))
+
+    def add(self, message: dict):
+        message.update({"ts": int(time.time())})
+        self.messages.append(message)
+
+    def get_messages(self) -> List[Dict[str, Any]]:
+        return self.messages
+
+    def get_latest(self, n: int = 10) -> List[Dict]:
+        return self.messages[-n:]
+
+    @staticmethod
+    def estimated_tokens(msg: Dict[str, Any]) -> int:  # token 估算 (粗略)
+        content_len = len(msg.get("content", ""))
+        return content_len // 4 + 4
+
+    def total_tokens(self) -> int:
+        return sum(self.estimated_tokens(m) for m in self.messages)
+
+    def auto_compact_if_needed(self):
+        if self.auto_compact_disabled:
+            return
+
+        if self.total_tokens() < self.auto_compact_threshold:
+            return
+
+        if self.continuous_failures >= self.max_failures:
+            return
+
+        try:    # 尝试会话记忆压缩
+            success = self.session_memory_compact()
+            if success and self.total_tokens() < self.auto_compact_threshold:
+                self.continuous_failures = 0
+                return
+        except Exception:
+            self.continuous_failures += 1
+
+        try:    # 回退传统压缩
+            self.compact_conversation()
+            self.continuous_failures = 0
+        except Exception:
+            self.continuous_failures += 1
+
+    def micro_compact(self, max_age_seconds: int = 21_600):
+        """ 扫描消息数组，查找来自可压缩工具白名单的 tool_result 块，并将其内容替换为 <Old tool result content cleared> """
+        now = int(time.time())
+        for m in self.messages:  # 如果是工具消息且很旧 → 用占位符替换
+            if m.get("role") == "tool" and now - m.get("ts", now) > max_age_seconds:
+                m["content"] = "<Old tool result content expired(6hours)>"
+
+    def session_memory_compact(self, retain_count: int = 100) -> bool:
+        """ 保留最近用户 + 助手消息，剥离旧工具结果, 返回: True 压缩成功 """
+        new_msgs = []
+        for m in self.messages:
+            if m.get("role") == "system":  # 先保留 system 消息
+                new_msgs.append(copy.deepcopy(m))
+
+        non_system = [m for m in self.messages if m.get("role") != "system"]
+        recent_msgs = non_system[-retain_count:]    # 保留最后 100 条消息
+        for m in recent_msgs:
+            if m.get("role") == "tool":
+                m = copy.deepcopy(m)
+                m["content"] = "<Old tool result content compacted>"
+            new_msgs.append(m)
+        self.messages = new_msgs
+        return True
+
+    def compact_conversation(self):
+        """ 剥离大附件， 工具输出等内容，用占位符替代旧内容，保证 token 降到阈值以下 """
+        new_msgs = []
+        for m in self.messages:
+            m_copy = copy.deepcopy(m)
+            role = m_copy.get("role")
+            if role == "tool" and len(m_copy.get("content", "")) > 200:
+                m_copy["content"] = "<Old tool result content removed>"
+            elif role == "assistant":
+                if len(m_copy.get("content", "")) > 500:
+                    m_copy["content"] = "<Old assistant content removed>"
+                if len(m_copy.get("reasoning_content", "")) > 500:
+                    m_copy["reasoning_content"] = "<Old assistant reasoning_content removed>"
+            new_msgs.append(m_copy)
+
+        systems = [m for m in new_msgs if m.get("role") == "system"]
+        others = [m for m in new_msgs if m.get("role") != "system"]
+        while sum(self.estimated_tokens(m) for m in systems + others) > self.auto_compact_threshold:  # 如果还是超长, 从头删除旧消息
+            if not others:  # 防止无限循环和 IndexError
+                break
+            others.pop(0)
+
+        self.messages = systems + others
+
+    def full_compact(self):    # 手动执行，调用模型进行大规模的摘要生成，后续实现
+        pass
+
+    def prepare_for_api(self):
+        self.micro_compact()
+        self.auto_compact_if_needed()
+        return self.get_messages()
 
 
 def chat_completion(messages: List[Dict[str, str]], timeout: int = 60):
@@ -408,11 +535,6 @@ def chat_completion(messages: List[Dict[str, str]], timeout: int = 60):
         "Content-Type": "application/json",
         "Authorization": f"Bearer {MANGO_KEY}",
     }
-    if 'xiaomi' in urlparse(MANGO_API_URL).netloc:
-        headers = {
-            "Content-Type": "application/json",
-            "api-key": f"{MANGO_KEY}",
-        }
     request = urllib.request.Request(MANGO_API_URL, data=json.dumps(body).encode(), headers=headers, method="POST", )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -432,6 +554,7 @@ def parse_chat_completion(response: Dict[str, Any]) -> Dict[str, Any]:
     if not choices:
         return {
             "finish_reason": None,
+            "raw_message": {},
             "content": "",
             "reasoning_content": None,
             "tool_calls": [],
@@ -466,6 +589,7 @@ def parse_chat_completion(response: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "finish_reason": finish_reason,
+        "raw_message": message,
         "content": content,
         "reasoning_content": reasoning_content,
         "tool_calls": tool_calls,
@@ -510,7 +634,13 @@ def main():
 
     print(f"{BOLD}Mango Cli{RESET} | {DIM}{MANGO_MODEL} ({urlparse(MANGO_API_URL).netloc}) | {project_root}{RESET}\n")
 
-    messages = [{"role": "system", "content": f"Concise coding assistant. cwd: {project_root}"}]
+    ctx_file_path = os.path.join(project_root, ".mangocli", "session.json")
+    ctx = ContextManager()
+    ctx.enabled_compact()
+    ctx.load(ctx_file_path)
+
+    if len(ctx) == 0:    # 刚初始化的ctx才需要system prompt
+        ctx.append_system(f"Concise coding assistant. cwd: {project_root}")
 
     while True:
         try:
@@ -528,18 +658,17 @@ def main():
                 if user_input.strip() == "/h":
                     helper()
 
-            messages.append({"role": "user", "content": user_input})
+            ctx.append_user(user_input)
 
             # agentic loop: keep calling API until no more tool calls
             iteration = 0
             context_tokens = 0
             while True:
                 console.start_spinner("Request...")
-                raw_response = chat_completion(messages)
+                response = parse_chat_completion(chat_completion(ctx.prepare_for_api()))
                 console.end_spinner()
 
-                messages.append(raw_response["choices"][0]["message"])
-                response = parse_chat_completion(raw_response)
+                ctx.append_assistant(response["raw_message"])
 
                 iteration += 1
                 context_tokens += response["usage"]["total_tokens"]
@@ -547,7 +676,7 @@ def main():
                     iteration=iteration,
                     input_tokens=response["usage"]["prompt_tokens"],
                     output_tokens=response["usage"]["completion_tokens"],
-                    context_tokens=context_tokens,
+                    context_tokens=ctx.total_tokens(),
                     max_context=MANGO_MAX_CONTEXT)
 
                 if response["content"]:
@@ -568,19 +697,16 @@ def main():
                             has_attempt = True
                             console.text(result)
 
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool["id"],
-                            "content": result
-                        })
+                        ctx.append_tool(tool["id"], result)
                     if has_attempt:
                         break
-                else:
-                    break
+            ctx.save(ctx_file_path)
         except (KeyboardInterrupt, EOFError):
             break
         except Exception as err:
             print(f"{RED}⏺ Error: {err}{RESET}")
+        finally:
+            ctx.save(ctx_file_path)
 
 
 if __name__ == '__main__':
