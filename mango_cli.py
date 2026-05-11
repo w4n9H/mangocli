@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+__version__ = "0.1.0"
+__author__ = "moofs"
+__license__ = "Apache License 2.0"
+
 import copy
 import difflib
 import glob
@@ -190,12 +195,71 @@ console = Printer()
 
 # --- Init dir, Base data ---
 def initialize_system():
-    if os.path.exists(base_persist_dir):
+    if not os.path.exists(base_persist_dir):
         os.mkdir(base_persist_dir)
 
 
 def helper():
-    console.text(f"帮助信息")
+    console.text("Mango CLI — 基于大模型的命令行编程助手")
+    console.text("内置命令:")
+    console.text("  /q, /quit      退出程序")
+    console.text("  /c, /compact   手动压缩当前会话（释放上下文空间）")
+    console.text("  /n, /new       结束当前会话并创建一个全新的会话")
+    console.text("  /h, /help      显示本帮助信息")
+
+
+# --- Utils function ---
+def _check_command_safety(command: str):
+    dangerous_patterns = [
+        # 文件删除相关
+        (r'\brm\s+.*-[rf]', "删除文件命令"), (r'\brm\s+-[rf]', "删除文件命令"), (r'\bunlink\b', "删除文件命令"),
+        # 系统格式化和分区操作
+        (r'\bmkfs\b', "格式化文件系统命令"), (r'\bfdisk\b', "磁盘分区命令"), (r'\bparted\b', "磁盘分区命令"),
+        (r'\bdd\s+.*if=.*of=', "数据复制命令，可能覆盖系统文件"),
+        # 权限修改
+        (r'\bchmod\s+(?:-[a-zA-Z]+\s+)*\d*7\d*7\b', "危险权限修改"), (r'\bchmod\s+777\b', "危险权限修改"),
+        (r'\bchmod\s+\d*7\d*7\b', "危险权限修改"), (r'\bchown\s+.*root\b', "更改文件所有者为root"),
+        # 提权相关
+        (r'\bsudo\s+.*rm\b', "使用sudo执行删除命令"), (r'\bsu\s+-\b', "切换到root用户"), (r'\bsu\s+root\b', "切换到root用户"),
+        # 进程操作
+        (r'\bkill\s+-9\s+1\b', "强制终止init进程"), (r'\bkillall\s+-9\b', "强制终止所有进程"), (r'\bpkill\s+-9\b', "强制终止进程"),
+        (r'\bkill\s+-9\s+-\d+\b', "强制终止整个进程组"),
+        # 环境变量和系统配置
+        (r'\bexport\s+PATH=', "修改PATH环境变量"), (r'\bunset\s+PATH\b', "删除PATH环境变量"),
+        (r'>>?\s*/etc/', "重定向写入系统配置文件"), (r'\becho\s+.*>\s*/etc/', "写入系统配置文件"),
+        # 历史和日志清理
+        (r'\bhistory\s+-c\b', "清空命令历史"), (r'>\s*/dev/null\s+2>&1', "重定向所有输出到null"),
+    ]
+    dangerous_chars = [
+        (r';', "命令分隔符，可能执行多个命令"), (r'`.*`', "命令替换，可能执行隐藏命令"), (r'\$\(.*\)', "命令替换，可能执行隐藏命令"),
+        (r'\|(?!\s*head\b|\s*tail\b|\s*grep\b|\s*sort\b|\s*uniq\b|\s*wc\b|\s*cat\b)', "管道符，可能传递敏感数据"),
+        (r'&&(?!\s*echo\b)', "逻辑与操作符，可能链式执行命令"), (r'\|\|', "逻辑或操作符，可能条件执行命令"), (r'<\(', "进程替换"),
+        (r'>\(', "进程替换"),
+    ]
+    command = command.strip()
+    if not command:
+        return False, None
+    for pattern, reason in dangerous_patterns:
+        if re.search(pattern, command, re.IGNORECASE):
+            return True, f"危险命令: {reason}"
+    for pattern, reason in dangerous_chars:
+        if re.search(pattern, command):
+            if pattern == r'&&(?!\s*echo\b)' and command.strip().startswith('cd '):  # 对于 && 的特殊处理，允许 cd 命令链
+                continue
+            return True, f"包含危险字符: {reason}"
+    return False, None
+
+
+def _validate_file_path(path: str) -> Optional[str]:
+    """ 验证给定路径是否在项目根目录内, 返回 None 表示合法，否则返回错误描述字符串。"""
+    abs_path = os.path.abspath(path)
+    real_path = os.path.realpath(abs_path)
+    real_root = os.path.realpath(project_root)
+    if not real_path.startswith(real_root + os.sep) and real_path != real_root:    # 必须位于项目根目录下
+        return f"path '{path}' is outside project root"
+    if os.path.isdir(real_path):    # 不允许直接操作目录（write/edit 只能操作文件）
+        return f"path '{path}' is a directory, not a file"
+    return None
 
 
 # --- Tool definitions: (description, schema, function) ---
@@ -208,12 +272,18 @@ def read(args):
 
 
 def write(args):
+    error = _validate_file_path(args["path"])
+    if error:
+        return f"write error: {error}"
     with open(args["path"], "w") as f:
         f.write(args["content"])
     return f"write {len(args['content'])}byte to {len(args['path'])} ok"
 
 
 def edit(args):
+    error = _validate_file_path(args["path"])
+    if error:
+        return f"edit error: {error}"
     text = open(args["path"]).read()
     old, new = args["old"], args["new"]
     if old not in text:
@@ -399,6 +469,9 @@ class ContextManager:
     def set_max_failures(self, n: int = 3):
         self.max_failures = n
 
+    def clear(self):
+        self.messages = []
+
     def append_system(self, content: str):
         self.messages.append({"role": "system", "content": content})
 
@@ -414,16 +487,26 @@ class ContextManager:
 
     def load(self, persist_file: str):
         if os.path.exists(persist_file):
-            with open(persist_file, "r", encoding="utf-8") as f:
-                self.messages = json.load(f)
+            try:
+                with open(persist_file, "r", encoding="utf-8") as f:
+                    self.messages = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                self.backup(persist_file)    # 备份损坏会话文件
+                self.messages = []    # 清空消息列表，使后续流程以全新会话开始
 
     def save(self, persist_file: str):
         with open(persist_file, "w", encoding="utf-8") as fp:
             fp.write(json.dumps(self.messages, indent=2, ensure_ascii=False))
 
-    def add(self, message: dict):
-        message.update({"ts": int(time.time())})
-        self.messages.append(message)
+    @staticmethod
+    def backup(persist_file: str):
+        corrupted_path = persist_file + f".{str(int(time.time()))}.corrupted"    # 备份会话文件
+        if os.path.exists(persist_file):
+            try:
+                os.rename(persist_file, corrupted_path)
+                console.warning(f"Session file corrupted, backed up to {corrupted_path}")
+            except Exception as e:
+                console.warning(f"Failed to backup corrupted session file: {e}")
 
     def get_messages(self) -> List[Dict[str, Any]]:
         return self.messages
@@ -442,10 +525,8 @@ class ContextManager:
     def auto_compact_if_needed(self):
         if self.auto_compact_disabled:
             return
-
         if self.total_tokens() < self.auto_compact_threshold:
             return
-
         if self.continuous_failures >= self.max_failures:
             return
 
@@ -454,13 +535,13 @@ class ContextManager:
             if success and self.total_tokens() < self.auto_compact_threshold:
                 self.continuous_failures = 0
                 return
-        except Exception:
+        except Exception as e:
             self.continuous_failures += 1
 
         try:    # 回退传统压缩
             self.compact_conversation()
             self.continuous_failures = 0
-        except Exception:
+        except Exception as e:
             self.continuous_failures += 1
 
     def micro_compact(self, max_age_seconds: int = 21_600):
@@ -520,33 +601,41 @@ class ContextManager:
         return self.get_messages()
 
 
-def chat_completion(messages: List[Dict[str, str]], timeout: int = 60):
-    extra_body = {
-        "thinking": {"type": "enabled"}
-    }
+def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retries: int = 3):
+    extra_body = {"thinking": {"type": "enabled"}}
     body = {
-        "model": MANGO_MODEL,
-        "messages": messages,
-        "stream": False,
-        "extra_body": extra_body,
-        "tools": tool_schema()
+        "model": MANGO_MODEL, "messages": messages, "stream": False, "extra_body": extra_body, "tools": tool_schema()
     }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {MANGO_KEY}",
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {MANGO_KEY}"}
+    last_exception = None
     request = urllib.request.Request(MANGO_API_URL, data=json.dumps(body).encode(), headers=headers, method="POST", )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw_data = response.read().decode("utf-8")
-            return json.loads(raw_data)
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8", errors="ignore")
-        raise urllib.error.HTTPError(e.url, e.code, f"{e.msg} - {error_body}", e.hdrs, e.fp) from e
-    except urllib.error.URLError as e:
-        raise urllib.error.URLError(f"请求失败: {e.reason}") from e
-    except json.JSONDecodeError as e:
-        raise json.JSONDecodeError(f"响应非 JSON: {raw_data[:200]}", e.doc, e.pos, ) from e
+    for attempt in range(max_retries + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw_data = response.read().decode("utf-8")
+                return json.loads(raw_data)
+        except urllib.error.HTTPError as e:
+            if e.code >= 500 or e.code == 429:
+                last_exception = e
+            else:
+                raise
+        except urllib.error.URLError as e:
+            last_exception = e
+        except json.JSONDecodeError as e:
+            last_exception = e
+        except Exception as e:
+            raise e
+
+        if attempt < max_retries:
+            delay = 1 * (2 ** attempt)
+            console.warning(
+                f"Request failed (attempt {attempt + 1}/{max_retries + 1}), "
+                f"retrying in {delay:.1f}s: {last_exception}"
+            )
+            time.sleep(delay)
+        else:
+            break    # 所有重试均已耗尽，跳出循环并抛出最后一个异常
+    raise last_exception
 
 
 def parse_chat_completion(response: Dict[str, Any]) -> Dict[str, Any]:
@@ -609,21 +698,44 @@ def run_tool(tool_name, tool_args):
             console.diff(old=tool_args["old"], new=tool_args["new"])
             if console.prompt_apply(f"Apply changes to {tool_args['path']}?"):
                 result = TOOLS[tool_name][2](tool_args)
+            else:
+                result = "error: User denied edit"
+        elif tool_name == "bash":
+            is_dangerous, reason = _check_command_safety(tool_args["cmd"])
+            if is_dangerous and not console.prompt_apply(f"Execute dangerous cmd ({reason})? {tool_args['cmd']}"):
+                result = "error: User denied dangerous command"
+            else:
+                console.start_spinner()
+                result = TOOLS[tool_name][2](tool_args)
+                console.end_spinner()
         else:
             console.start_spinner()
             result = TOOLS[tool_name][2](tool_args)
             console.end_spinner()
 
+        if not result:
+            print(f"  {DIM}⎿  (no output){RESET}")    # 空结果直接提示
+        else:
             result_lines = result.split("\n")
-            preview = result_lines[0][:60]
-            if len(result_lines) > 1:
-                preview += f" ... +{len(result_lines) - 1} lines"
-            elif len(result_lines[0]) > 60:
-                preview += "..."
-            print(f"  {DIM}⎿  {preview}{RESET}")
+            max_preview_lines = 20    # 最多展示前3行
+            max_line_width = 100      # 单行最大宽度，超出截断
+            lines_to_show = result_lines[:max_preview_lines]
+            preview_lines = []
+            for line in lines_to_show:
+                if len(line) > max_line_width:
+                    line = line[:max_line_width - 3] + "..."
+                preview_lines.append(line)
+            if len(result_lines) > max_preview_lines:
+                more = len(result_lines) - max_preview_lines
+                preview_lines.append(f"... and {more} more line{'s' if more > 1 else ''}")
+            prefix = f"  {DIM}⎿  "
+            for i, line in enumerate(preview_lines):
+                if i == 0:
+                    print(f"{prefix}{line}{RESET}")
+                else:
+                    print(f"     {DIM}{line}{RESET}")    # 后续行与第一行内容对齐（5个空格 + 颜色）
 
         console.tool_result(True)
-
         return result
     except Exception as err:
         return f"error: {err}"
@@ -632,15 +744,17 @@ def run_tool(tool_name, tool_args):
 def main():
     initialize_system()
 
-    print(f"{BOLD}Mango Cli{RESET} | {DIM}{MANGO_MODEL} ({urlparse(MANGO_API_URL).netloc}) | {project_root}{RESET}\n")
+    print(f"{BOLD}Mango Cli v{__version__}{RESET} | {DIM}{MANGO_MODEL} | {project_root}{RESET}\n")
 
     ctx_file_path = os.path.join(project_root, ".mangocli", "session.json")
     ctx = ContextManager()
     ctx.enabled_compact()
+    ctx.set_max_failures()
     ctx.load(ctx_file_path)
 
+    system_prompt = f"Concise coding assistant. cwd: {project_root}"
     if len(ctx) == 0:    # 刚初始化的ctx才需要system prompt
-        ctx.append_system(f"Concise coding assistant. cwd: {project_root}")
+        ctx.append_system(system_prompt)
 
     while True:
         try:
@@ -649,14 +763,19 @@ def main():
             if not user_input:
                 continue
             if user_input.startswith('/'):
-                if user_input.strip() == "/q":
+                if user_input.strip() in ("/q", "/quit"):    # 退出
                     break
-                if user_input.strip() == "/c":
-                    pass
-                if user_input.strip() == "/m":
-                    pass
-                if user_input.strip() == "/h":
+                if user_input.strip() in ("/c", "/compact"):    # 手动触发 full compact
+                    continue
+                if user_input.strip() in ("/n", "/new"):    # 创建新的session
+                    ctx.backup(ctx_file_path)
+                    ctx.clear()
+                    ctx.append_system(system_prompt)
+                    console.success("New session created.")
+                    continue
+                if user_input.strip() in ("/h", "/help"):
                     helper()
+                    continue
 
             ctx.append_user(user_input)
 
@@ -685,21 +804,21 @@ def main():
                 if response["reasoning_content"]:
                     console.thinking(response["reasoning_content"])
 
+                if response["finish_reason"] == "stop":
+                    break    # 模型明确表示结束，退出循环
+
                 if response["has_tool_calls"]:
-                    has_attempt = False
                     tool_calls = response["tool_calls"]
                     for tool in tool_calls:
                         tool_name, tool_args = tool["name"], tool["arguments"]
-
                         result = run_tool(tool_name, tool_args)
-
                         if tool_name == "attempt_completion":
-                            has_attempt = True
                             console.text(result)
-
                         ctx.append_tool(tool["id"], result)
-                    if has_attempt:
+                    if any(tc["name"] == "attempt_completion" for tc in tool_calls):
                         break
+                else:
+                    break
             ctx.save(ctx_file_path)
         except (KeyboardInterrupt, EOFError):
             break
