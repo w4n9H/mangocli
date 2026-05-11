@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "moofs"
 __license__ = "Apache License 2.0"
 
@@ -17,7 +17,6 @@ import time
 import urllib.error
 import urllib.request
 import glob as globlib
-from urllib.parse import urlparse
 from typing import List, Dict, Any, Optional
 
 MANGO_KEY = os.environ.get("MANGO_KEY")
@@ -33,8 +32,7 @@ RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
 BLUE, CYAN, GREEN, YELLOW, RED, GREY = ("\033[34m", "\033[36m", "\033[32m", "\033[33m", "\033[31m", "\033[90m")
 
 
-def _c(text, color):
-    return f"{color}{text}{RESET}"
+def _c(text, color): return f"{color}{text}{RESET}"
 
 
 class Printer:
@@ -113,9 +111,7 @@ class Printer:
 
     def token_usage(self, iteration: int, input_tokens: int, output_tokens: int, context_tokens: int, max_context: int):
         def fmt(n):
-            if n >= 1000:
-                return f"{n / 1000:.1f}k"
-            return str(n)
+            return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
         ratio = context_tokens / max_context if max_context else 0
         percent = int(ratio * 100)
@@ -171,10 +167,7 @@ class Printer:
                 time.sleep(0.1)
                 i += 1
 
-        self._spinner_thread = threading.Thread(
-            target=run,
-            daemon=True
-        )
+        self._spinner_thread = threading.Thread(target=run, daemon=True)
         self._spinner_thread.start()
 
     def end_spinner(self):
@@ -291,9 +284,7 @@ def edit(args):
     count = text.count(old)
     if not args.get("all") and count > 1:
         return f"error: old_string appears {count} times, must be unique (use all=true)"
-    replacement = (
-        text.replace(old, new) if args.get("all") else text.replace(old, new, 1)
-    )
+    replacement = (text.replace(old, new) if args.get("all") else text.replace(old, new, 1))
     with open(args["path"], "w") as f:
         f.write(replacement)
     return f"edit {len(args['path'])} ok"
@@ -302,11 +293,7 @@ def edit(args):
 def search(args):
     pattern = (args.get("path", ".") + "/" + args["pat"]).replace("//", "/")
     files = globlib.glob(pattern, recursive=True)
-    files = sorted(
-        files,
-        key=lambda f: os.path.getmtime(f) if os.path.isfile(f) else 0,
-        reverse=True,
-    )
+    files = sorted(files, key=lambda f: os.path.getmtime(f) if os.path.isfile(f) else 0, reverse=True,)
     return "\n".join(files) or "none"
 
 
@@ -324,11 +311,7 @@ def grep(args):
 
 
 def bash(args):
-    proc = subprocess.Popen(
-        args["cmd"], shell=True,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True
-    )
+    proc = subprocess.Popen(args["cmd"], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     output_lines = []
     try:
         while True:
@@ -336,7 +319,6 @@ def bash(args):
             if not line and proc.poll() is not None:
                 break
             if line:
-                # print(f"  {DIM}│ {line.rstrip()}{RESET}", flush=True)
                 output_lines.append(line)
         proc.wait(timeout=60)
     except subprocess.TimeoutExpired:
@@ -424,8 +406,7 @@ def tool_schema():
             is_optional = param_type.endswith("?")
             base_type = param_type.rstrip("?")
             properties[param_name] = {
-                "type": "integer" if base_type == "number" else base_type,
-                "description": param_info['description']
+                "type": "integer" if base_type == "number" else base_type, "description": param_info['description']
             }
             if not is_optional:
                 required.append(param_name)
@@ -457,23 +438,17 @@ class ContextManager:
         self.continuous_failures = 0
         self.max_failures = 3
 
-    def __len__(self):
-        return len(self.messages)
+    def __len__(self): return len(self.messages)
 
-    def disabled_compact(self):
-        self.auto_compact_disabled = True
+    def disabled_compact(self): self.auto_compact_disabled = True
 
-    def enabled_compact(self):
-        self.auto_compact_disabled = False
+    def enabled_compact(self): self.auto_compact_disabled = False
 
-    def set_max_failures(self, n: int = 3):
-        self.max_failures = n
+    def set_max_failures(self, n: int = 3): self.max_failures = n
 
-    def clear(self):
-        self.messages = []
+    def clear(self): self.messages = []
 
-    def append_system(self, content: str):
-        self.messages.append({"role": "system", "content": content})
+    def append_system(self, content: str): self.messages.append({"role": "system", "content": content})
 
     def append_user(self, content: str):
         self.messages.append({"role": "user", "content": content, "ts": int(time.time())})
@@ -493,6 +468,8 @@ class ContextManager:
             except (json.JSONDecodeError, IOError) as e:
                 self.backup(persist_file)    # 备份损坏会话文件
                 self.messages = []    # 清空消息列表，使后续流程以全新会话开始
+                console.error(f"session.json file is corrupted ({e}). "
+                              f"The corrupted file has been backed up and a new session.json has been generated.")
 
     def save(self, persist_file: str):
         with open(persist_file, "w", encoding="utf-8") as fp:
@@ -500,27 +477,24 @@ class ContextManager:
 
     @staticmethod
     def backup(persist_file: str):
-        corrupted_path = persist_file + f".{str(int(time.time()))}.corrupted"    # 备份会话文件
+        backup_path = persist_file + f".{str(int(time.time()))}.backup"    # 备份会话文件
         if os.path.exists(persist_file):
             try:
-                os.rename(persist_file, corrupted_path)
-                console.warning(f"Session file corrupted, backed up to {corrupted_path}")
+                os.rename(persist_file, backup_path)
+                console.warning(f"Session file backed up to {backup_path}")
             except Exception as e:
                 console.warning(f"Failed to backup corrupted session file: {e}")
 
-    def get_messages(self) -> List[Dict[str, Any]]:
-        return self.messages
+    def get_messages(self) -> List[Dict[str, Any]]: return self.messages
 
-    def get_latest(self, n: int = 10) -> List[Dict]:
-        return self.messages[-n:]
+    def get_latest(self, n: int = 10) -> List[Dict]: return self.messages[-n:]
 
     @staticmethod
     def estimated_tokens(msg: Dict[str, Any]) -> int:  # token 估算 (粗略)
         content_len = len(msg.get("content", ""))
         return content_len // 4 + 4
 
-    def total_tokens(self) -> int:
-        return sum(self.estimated_tokens(m) for m in self.messages)
+    def total_tokens(self) -> int: return sum(self.estimated_tokens(m) for m in self.messages)
 
     def auto_compact_if_needed(self):
         if self.auto_compact_disabled:
@@ -559,7 +533,7 @@ class ContextManager:
                 new_msgs.append(copy.deepcopy(m))
 
         non_system = [m for m in self.messages if m.get("role") != "system"]
-        recent_msgs = non_system[-retain_count:]    # 保留最后 100 条消息
+        recent_msgs = non_system[-retain_count:]
         for m in recent_msgs:
             if m.get("role") == "tool":
                 m = copy.deepcopy(m)
@@ -619,9 +593,7 @@ def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retri
                 last_exception = e
             else:
                 raise
-        except urllib.error.URLError as e:
-            last_exception = e
-        except json.JSONDecodeError as e:
+        except (urllib.error.URLError, json.JSONDecodeError) as e:
             last_exception = e
         except Exception as e:
             raise e
@@ -629,12 +601,11 @@ def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retri
         if attempt < max_retries:
             delay = 1 * (2 ** attempt)
             console.warning(
-                f"Request failed (attempt {attempt + 1}/{max_retries + 1}), "
-                f"retrying in {delay:.1f}s: {last_exception}"
+                f"Request failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {delay:.1f}s: {last_exception}"
             )
             time.sleep(delay)
         else:
-            break    # 所有重试均已耗尽，跳出循环并抛出最后一个异常
+            break  # 所有重试均已耗尽，跳出循环并抛出最后一个异常
     raise last_exception
 
 
@@ -655,12 +626,9 @@ def parse_chat_completion(response: Dict[str, Any]) -> Dict[str, Any]:
     choice = choices[0]
     message = choice.get("message", {})
     finish_reason = choice.get("finish_reason", "stop")
-    # 提取文本内容
-    content = message.get("content", "") or ""
-    # 提取推理内容（DeepSeek reasoner 模型专用）
-    reasoning_content = message.get("reasoning_content", "") or ""
-    # 处理工具调用
-    raw_tool_calls = message.get("tool_calls", [])
+    content = message.get("content", "") or ""  # 提取文本内容
+    reasoning_content = message.get("reasoning_content", "") or ""  # 提取推理内容
+    raw_tool_calls = message.get("tool_calls", [])  # 处理工具调用
     tool_calls = []
     for tc in raw_tool_calls:
         function = tc.get("function", {})
@@ -714,11 +682,11 @@ def run_tool(tool_name, tool_args):
             console.end_spinner()
 
         if not result:
-            print(f"  {DIM}⎿  (no output){RESET}")    # 空结果直接提示
+            print(f"  {DIM}⎿  (no output){RESET}")  # 空结果直接提示
         else:
             result_lines = result.split("\n")
-            max_preview_lines = 20    # 最多展示前3行
-            max_line_width = 100      # 单行最大宽度，超出截断
+            max_preview_lines = 20  # 最多展示前3行
+            max_line_width = 100  # 单行最大宽度，超出截断
             lines_to_show = result_lines[:max_preview_lines]
             preview_lines = []
             for line in lines_to_show:
@@ -733,7 +701,7 @@ def run_tool(tool_name, tool_args):
                 if i == 0:
                     print(f"{prefix}{line}{RESET}")
                 else:
-                    print(f"     {DIM}{line}{RESET}")    # 后续行与第一行内容对齐（5个空格 + 颜色）
+                    print(f"     {DIM}{line}{RESET}")  # 后续行与第一行内容对齐（5个空格 + 颜色）
 
         console.tool_result(True)
         return result
@@ -753,7 +721,7 @@ def main():
     ctx.load(ctx_file_path)
 
     system_prompt = f"Concise coding assistant. cwd: {project_root}"
-    if len(ctx) == 0:    # 刚初始化的ctx才需要system prompt
+    if len(ctx) == 0:  # 刚初始化的ctx才需要system prompt
         ctx.append_system(system_prompt)
 
     while True:
@@ -763,11 +731,11 @@ def main():
             if not user_input:
                 continue
             if user_input.startswith('/'):
-                if user_input.strip() in ("/q", "/quit"):    # 退出
+                if user_input.strip() in ("/q", "/quit"):  # 退出
                     break
-                if user_input.strip() in ("/c", "/compact"):    # 手动触发 full compact
+                if user_input.strip() in ("/c", "/compact"):  # 手动触发 full compact
                     continue
-                if user_input.strip() in ("/n", "/new"):    # 创建新的session
+                if user_input.strip() in ("/n", "/new"):  # 创建新的session
                     ctx.backup(ctx_file_path)
                     ctx.clear()
                     ctx.append_system(system_prompt)
@@ -805,7 +773,7 @@ def main():
                     console.thinking(response["reasoning_content"])
 
                 if response["finish_reason"] == "stop":
-                    break    # 模型明确表示结束，退出循环
+                    break  # 模型明确表示结束，退出循环
 
                 if response["has_tool_calls"]:
                     tool_calls = response["tool_calls"]
