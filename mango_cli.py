@@ -17,8 +17,11 @@ import time
 import urllib.error
 import urllib.request
 import glob as globlib
+import platform
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+# --- System Env ---
 MANGO_KEY = os.environ.get("MANGO_KEY")
 MANGO_API_URL = os.environ.get("MANGO_API_URL")
 MANGO_MODEL = os.environ.get("MANGO_MODEL")
@@ -26,15 +29,18 @@ MANGO_MAX_CONTEXT = int(os.environ.get("MANGO_MAX_CONTEXT", 128000))
 
 project_root = os.getcwd()
 base_persist_dir = os.path.join(project_root, '.mangocli')
+session_dir = os.path.join(project_root, ".mangocli", "session")
 
 # ANSI colors
 RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
-BLUE, CYAN, GREEN, YELLOW, RED, GREY = ("\033[34m", "\033[36m", "\033[32m", "\033[33m", "\033[31m", "\033[90m")
+BLUE, CYAN, GREEN, YELLOW, RED, GREY, ORANGE = (
+    "\033[34m", "\033[36m", "\033[32m", "\033[33m", "\033[31m", "\033[90m", "\033[38;2;245;78;0m")
 
 
 def _c(text, color): return f"{color}{text}{RESET}"
 
 
+# --- UI ---
 class Printer:
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -59,13 +65,14 @@ class Printer:
                 self._render_spinner_frame()
 
     def _render_spinner_frame(self, frame: str = "⠋"):
-        text = f"{frame} {self._spinner_message}"
+        # text = f"{frame} {self._spinner_message}"
+        text = f"{_c(frame, ORANGE)} {_c(self._spinner_message, ORANGE)}"
         sys.stdout.write("\r" + text)
         sys.stdout.flush()
 
     def section(self, title):
         self._write_line()
-        self._write_line(_c(f"• {title}", GREY))
+        self._write_line(_c(f"• {title}", ORANGE))
 
     def kv(self, data: Dict[str, Any]):
         for k, v in data.items():
@@ -75,7 +82,7 @@ class Printer:
         self.section("Tool Call")
         self._write_line(f"{_c('› ', GREY)}{_c(name, CYAN)}  {_c(desc, GREY)}")
 
-    def tool_result(self, ok=True, meta=""):
+    def tool_result(self, ok=True, meta="applied"):
         icon = "✓" if ok else "✗"
         color = GREEN if ok else RED
         suffix = f" {meta}" if meta else ""
@@ -89,9 +96,6 @@ class Printer:
 
     def warning(self, msg: str):
         self._write_line(f"{_c('! ', YELLOW)}{_c(msg, GREY)}")
-
-    def info(self, msg: str):
-        self._write_line(f"{_c('i ', GREY)}{_c(msg, GREY)}")
 
     def text(self, msg: str):
         self._write_line(_c(msg, GREY))
@@ -120,8 +124,24 @@ class Printer:
         self._write_line()
         self._write_line(
             _c(f"round: {iteration} | tokens: {fmt(input_tokens)} in / {fmt(output_tokens)} out |  ctx: ", GREY) +
-            _c(f"{percent}%", color)
+            _c(f"{percent}%", color))
+
+    def compact_status(self, before_tokens: int, after_tokens: int, max_context: int, strategy: str = "auto"):
+        saved = before_tokens - after_tokens
+        ratio = (after_tokens / max_context) if max_context else 0
+        percent = int(ratio * 100)
+        color = GREEN if percent < 50 else YELLOW if percent < 70 else RED
+
+        self.section("Compact")
+        self._write_line(f"  {_c('strategy', GREY)} {_c(strategy, ORANGE)}")
+        self._write_line(
+            f"  {_c('tokens', GREY)} "
+            f"{_c(f'{before_tokens:,}', RED)}"
+            f" {_c('→', GREY)} "
+            f"{_c(f'{after_tokens:,}', GREEN)} "
+            f"{_c(f'(-{saved:,})', ORANGE)}"
         )
+        self._write_line(f"  {_c('context', GREY)} {_c(f'{percent}%', color)}")
 
     @staticmethod
     def prompt_apply(message: str) -> bool:
@@ -135,6 +155,7 @@ class Printer:
                 print("请输入 y 或 n")
 
     def diff(self, old: str, new: str, context: int = 3, filename: str = "file.py"):
+        self.section("Code Diff")
         old_lines = old.splitlines()
         new_lines = new.splitlines()
 
@@ -183,13 +204,15 @@ class Printer:
 console = Printer()
 
 
-# --- i18n
+# --- i18n ---
 
 
 # --- Init dir, Base data ---
 def initialize_system():
     if not os.path.exists(base_persist_dir):
         os.mkdir(base_persist_dir)
+    if not os.path.exists(session_dir):
+        os.mkdir(session_dir)
 
 
 def helper():
@@ -203,31 +226,16 @@ def helper():
 
 # --- Utils function ---
 def _check_command_safety(command: str):
+    # 1.文件删除命令， 2.系统格式化和分区操作，3.危险权限修改， 4.提权命令，5.危险进程操作，6.环境变量和系统配置，7.历史和日志清理
     dangerous_patterns = [
-        # 文件删除相关
-        (r'\brm\s+.*-[rf]', "删除文件命令"), (r'\brm\s+-[rf]', "删除文件命令"), (r'\bunlink\b', "删除文件命令"),
-        # 系统格式化和分区操作
-        (r'\bmkfs\b', "格式化文件系统命令"), (r'\bfdisk\b', "磁盘分区命令"), (r'\bparted\b', "磁盘分区命令"),
-        (r'\bdd\s+.*if=.*of=', "数据复制命令，可能覆盖系统文件"),
-        # 权限修改
-        (r'\bchmod\s+(?:-[a-zA-Z]+\s+)*\d*7\d*7\b', "危险权限修改"), (r'\bchmod\s+777\b', "危险权限修改"),
-        (r'\bchmod\s+\d*7\d*7\b', "危险权限修改"), (r'\bchown\s+.*root\b', "更改文件所有者为root"),
-        # 提权相关
-        (r'\bsudo\s+.*rm\b', "使用sudo执行删除命令"), (r'\bsu\s+-\b', "切换到root用户"), (r'\bsu\s+root\b', "切换到root用户"),
-        # 进程操作
-        (r'\bkill\s+-9\s+1\b', "强制终止init进程"), (r'\bkillall\s+-9\b', "强制终止所有进程"), (r'\bpkill\s+-9\b', "强制终止进程"),
-        (r'\bkill\s+-9\s+-\d+\b', "强制终止整个进程组"),
-        # 环境变量和系统配置
-        (r'\bexport\s+PATH=', "修改PATH环境变量"), (r'\bunset\s+PATH\b', "删除PATH环境变量"),
-        (r'>>?\s*/etc/', "重定向写入系统配置文件"), (r'\becho\s+.*>\s*/etc/', "写入系统配置文件"),
-        # 历史和日志清理
-        (r'\bhistory\s+-c\b', "清空命令历史"), (r'>\s*/dev/null\s+2>&1', "重定向所有输出到null"),
-    ]
-    dangerous_chars = [
-        (r';', "命令分隔符，可能执行多个命令"), (r'`.*`', "命令替换，可能执行隐藏命令"), (r'\$\(.*\)', "命令替换，可能执行隐藏命令"),
-        (r'\|(?!\s*head\b|\s*tail\b|\s*grep\b|\s*sort\b|\s*uniq\b|\s*wc\b|\s*cat\b)', "管道符，可能传递敏感数据"),
-        (r'&&(?!\s*echo\b)', "逻辑与操作符，可能链式执行命令"), (r'\|\|', "逻辑或操作符，可能条件执行命令"), (r'<\(', "进程替换"),
-        (r'>\(', "进程替换"),
+        (r'\brm\s+.*-[rf]', 1), (r'\brm\s+-[rf]', 1), (r'\bunlink\b', 1),
+        (r'\bmkfs\b', 2), (r'\bfdisk\b', 2), (r'\bparted\b', 2), (r'\bdd\s+.*if=.*of=', 2),
+        (r'\bchmod\s+(?:-[a-zA-Z]+\s+)*\d*7\d*7\b', 3), (r'\bchmod\s+777\b', 3), (r'\bchmod\s+\d*7\d*7\b', 3),
+        (r'\bchown\s+.*root\b', 3),
+        (r'\bsudo\s+.*rm\b', 4), (r'\bsu\s+-\b', 4), (r'\bsu\s+root\b', 4),
+        (r'\bkill\s+-9\s+1\b', 5), (r'\bkillall\s+-9\b', 5), (r'\bpkill\s+-9\b', 5), (r'\bkill\s+-9\s+-\d+\b', 5),
+        (r'\bexport\s+PATH=', 6), (r'\bunset\s+PATH\b', 6), (r'>>?\s*/etc/', 6), (r'\becho\s+.*>\s*/etc/', 6),
+        (r'\bhistory\s+-c\b', 7), (r'>\s*/dev/null\s+2>&1', 7),
     ]
     command = command.strip()
     if not command:
@@ -235,11 +243,6 @@ def _check_command_safety(command: str):
     for pattern, reason in dangerous_patterns:
         if re.search(pattern, command, re.IGNORECASE):
             return True, f"危险命令: {reason}"
-    for pattern, reason in dangerous_chars:
-        if re.search(pattern, command):
-            if pattern == r'&&(?!\s*echo\b)' and command.strip().startswith('cd '):  # 对于 && 的特殊处理，允许 cd 命令链
-                continue
-            return True, f"包含危险字符: {reason}"
     return False, None
 
 
@@ -571,7 +574,12 @@ class ContextManager:
 
     def prepare_for_api(self):
         self.micro_compact()
+        before = self.total_tokens()
         self.auto_compact_if_needed()
+        after = self.total_tokens()
+        if before > after:
+            console.compact_status(
+                before_tokens=before, after_tokens=after, max_context=MANGO_MAX_CONTEXT, strategy="auto")
         return self.get_messages()
 
 
@@ -658,7 +666,6 @@ def parse_chat_completion(response: Dict[str, Any]) -> Dict[str, Any]:
 
 def run_tool(tool_name, tool_args):
     try:
-        result = ""
         arg_preview = str(list(tool_args.values())[0])[:50]
         console.tool_call(tool_name, arg_preview)
 
@@ -709,18 +716,120 @@ def run_tool(tool_name, tool_args):
         return f"error: {err}"
 
 
+class SystemPrompt:
+    """ 分层装配的提示词运行时. 可根据会话状态、记忆、环境变量等动态生成完整的 system prompt."""
+    def __init__(self):
+        self.sections = []    # 有序的 section 列表，每个元素为 (section_name, content)
+        self._init_default_sections()    # 默认加载基础 sections
+
+    def _init_default_sections(self):
+        self.sections.append(("base_intro", self._build_base_intro()))
+        self.sections.append(("tool_guidance", self._build_tool_guidance()))
+        self.sections.append(("safety", self._build_safety()))
+        self.sections.append(("language", self._build_language()))
+        self.sections.append(("memory", self._build_memory()))
+        self.sections.append(("environment", self._build_environment()))
+
+    @staticmethod
+    def _build_base_intro() -> list[str]:  # 基础身份和核心约束
+        return [
+            "You are an interactive agent that helps users with software engineering tasks. Use the instructions "
+            "below and the tools available to you to assist the user.",
+            "",
+            "IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are "
+            "for helping the user with programming. For file paths, always prefer absolute paths when possible. If "
+            "you need to read a directory, use the bash tool (ls) because the read tool cannot read directories.",
+        ]
+
+    @staticmethod
+    def _build_tool_guidance() -> list[str]:  # 工具使用指导
+        return [
+            "## Tool Selection Guidelines",
+            "You have access to the following dedicated tools: read/write/edit/search/grep/bash/attempt_completion.",
+            "",
+            "- For reading files: use **read**.",
+            "- For writing or overwriting files: use **write**.",
+
+            "- For replacing exact strings within a file: use **edit**. Prefer edit when you only need to change a "
+            "small portion of a file.",
+
+            "- For searching file names/paths: use **search** with a glob pattern.",
+            "- For searching file content with regex: use **grep**.",
+
+            "- Only use **bash** when no dedicated tool can accomplish the task, or for system commands (e.g., "
+            "installing packages, running tests, managing directories).",
+
+            "- Always use **attempt_completion** to present the final result to the user.",
+            "- When using edit, ensure the `old` string is unique or set `all` to true.",
+        ]
+
+    @staticmethod
+    def _build_environment() -> list[str]:  # 动态环境信息注入
+        os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
+        python_ver = sys.version.split()[0]
+
+        return [
+            "## Environment",
+            "",
+            f"- Current date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"- Working directory: {project_root}",
+            f"- Operating system: {os_info}",
+            f"- Python version: {python_ver}",
+            f"- Shell: {os.environ.get('SHELL', 'unknown')}",
+        ]
+
+    @staticmethod
+    def _build_language() -> list[str]:
+        """语言偏好(可通过环境变量 MANGO_LANG 配置), 若未设置则默认使用 English. """
+        lang = os.environ.get("MANGO_LANG", "zh")
+        if lang.lower() == "chinese" or lang.lower() == "zh":
+            return ["## Language", f"You should communicate with the user in Chinese (Simplified)."]
+        return ["## Language", f"You should communicate with the user in {lang}."]
+
+    @staticmethod
+    def _build_memory() -> list[str]:
+        """ 记忆加载, .mangocli/MEMORY.md 存在，则将其内容作为记忆注入. """
+        memory_path = os.path.join(project_root, ".mangocli", "MANGO.md")
+        if not os.path.exists(memory_path):
+            return ["## Memory", "No persistent memory available."]
+        if os.path.getsize(memory_path) == 0:
+            return ["## Memory", "No persistent memory available."]
+        content = open(memory_path, "r", encoding="utf-8").readlines()
+        return [f"## Persisted Memory", ""] + content
+
+    @staticmethod
+    def _build_safety() -> list[str]:
+        """ 安全边界提示. 要求模型在执行前对危险命令进行确认，并遵守工具的安全检查。"""
+        return [
+            "## Safety",
+            "",
+            "- Before executing any command that modifies the file system, deletes files, changes permissions, "
+            "or performs system administration, you MUST ensure the command is safe and the user has confirmed if "
+            "necessary.",
+            "- Do not attempt to access files outside the project root unless explicitly required and confirmed by "
+            "the user.",
+        ]
+
+    def assemble(self) -> str:  # 将所有 section 按顺序拼接成完整的 system prompt。
+        _basic = []
+        for _, content in self.sections:
+            _basic.append("\n".join(content))
+        return "\n\n".join(_basic)
+
+
 def main():
     initialize_system()
 
     print(f"{BOLD}Mango Cli v{__version__}{RESET} | {DIM}{MANGO_MODEL} | {project_root}{RESET}\n")
 
-    ctx_file_path = os.path.join(project_root, ".mangocli", "session.json")
+    ctx_file_path = os.path.join(session_dir, "session.json")
     ctx = ContextManager()
     ctx.enabled_compact()
     ctx.set_max_failures()
     ctx.load(ctx_file_path)
 
-    system_prompt = f"Concise coding assistant. cwd: {project_root}"
+    prompt_runtime = SystemPrompt()
+    system_prompt = prompt_runtime.assemble()
     if len(ctx) == 0:  # 刚初始化的ctx才需要system prompt
         ctx.append_system(system_prompt)
 
@@ -749,16 +858,13 @@ def main():
 
             # agentic loop: keep calling API until no more tool calls
             iteration = 0
-            context_tokens = 0
             while True:
                 console.start_spinner("Request...")
                 response = parse_chat_completion(chat_completion(ctx.prepare_for_api()))
                 console.end_spinner()
-
                 ctx.append_assistant(response["raw_message"])
 
                 iteration += 1
-                context_tokens += response["usage"]["total_tokens"]
                 console.token_usage(
                     iteration=iteration,
                     input_tokens=response["usage"]["prompt_tokens"],
@@ -768,20 +874,16 @@ def main():
 
                 if response["content"]:
                     console.output(response["content"])
-
                 if response["reasoning_content"]:
                     console.thinking(response["reasoning_content"])
 
                 if response["finish_reason"] == "stop":
                     break  # 模型明确表示结束，退出循环
-
                 if response["has_tool_calls"]:
                     tool_calls = response["tool_calls"]
                     for tool in tool_calls:
                         tool_name, tool_args = tool["name"], tool["arguments"]
                         result = run_tool(tool_name, tool_args)
-                        if tool_name == "attempt_completion":
-                            console.text(result)
                         ctx.append_tool(tool["id"], result)
                     if any(tc["name"] == "attempt_completion" for tc in tool_calls):
                         break
