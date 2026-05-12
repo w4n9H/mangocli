@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools==75.8.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mangopi-cli"
+version = "0.1.2"
+description = "Mango Pi Cli"
+readme = "README.md"
+authors = [{name = "moofs"}]
+license = {text = "Apache License 2.0"}
+classifiers = [
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/w4n9H/mangocli"
+
+[project.scripts]
+mangopi-cli = "mango_cli:main"
+
+[tool.setuptools]
+py-modules = ["mango_cli"]

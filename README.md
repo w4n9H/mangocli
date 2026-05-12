@@ -1,8 +1,8 @@
-# Mango CLI
+# Mangopi CLI
 
 > A lightweight AI coding assistant running directly in your terminal.
 
-Mango CLI is a zero-dependency, local-first AI coding assistant inspired by Claude Code.
+Mangopi CLI is a zero-dependency, local-first AI coding assistant inspired by Claude Code.
 
 It supports:
 
@@ -33,13 +33,13 @@ All with instant startup and no heavy framework dependencies.
 ## From PyPI
 
 ```bash
-pip install mangocli
+pip install mangopi-cli
 ```
 
-Start Mango CLI:
+Start Mangopi CLI:
 
 ```bash
-mango-cli
+mangopi-cli
 ```
 
 ---
@@ -107,13 +107,13 @@ Built-in commands:
 * `grep`
 * `bash`
 
-Mango CLI can autonomously inspect files, modify code, search projects, and execute shell commands.
+Mangopi CLI can autonomously inspect files, modify code, search projects, and execute shell commands.
 
 ---
 
 # Philosophy
 
-Mango CLI focuses on:
+Mangopi CLI focuses on:
 
 * fast startup
 * zero dependency
