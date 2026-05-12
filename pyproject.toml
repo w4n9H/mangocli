@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mangopi-cli"
-version = "0.1.2"
+version = "0.1.3"
 description = "Mango Pi Cli"
 readme = "README.md"
 authors = [{name = "moofs"}]
@@ -21,10 +21,10 @@ requires-python = ">=3.8"
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/w4n9H/mangocli"
+Homepage = "https://github.com/w4n9H/mangopi-cli"
 
 [project.scripts]
-mangopi-cli = "mango_cli:main"
+mangopi-cli = "mangopi_cli:main"
 
 [tool.setuptools]
-py-modules = ["mango_cli"]
+py-modules = ["mangopi_cli"]

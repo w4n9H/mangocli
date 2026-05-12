@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mangopi CLI — 轻量级 AI 编程助手</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d0d0d;
+    color: #c9d1d9;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    line-height: 1.7;
+    font-size: 15px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* CRT scanline effect */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(255,255,255,0.015) 2px,
+      rgba(255,255,255,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 60px 24px 40px;
+    flex: 1;
+  }
+
+  /* ---- Header / Logo ---- */
+  .header {
+    margin-bottom: 60px;
+    text-align: center;
+  }
+
+  .logo {
+    font-size: 14px;
+    color: #565656;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .logo span {
+    color: #f05000;
+  }
+
+  h1 {
+    font-size: 48px;
+    font-weight: 700;
+    color: #e6e6e6;
+    letter-spacing: -1px;
+    margin-bottom: 12px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    color: #8b949e;
+    border-top: 1px solid #21262d;
+    border-bottom: 1px solid #21262d;
+    padding: 12px 0;
+    display: inline-block;
+  }
+
+  .subtitle em {
+    font-style: normal;
+    color: #58a6ff;
+  }
+
+  /* ---- Version Badge ---- */
+  .badge {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 4px 12px;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #8b949e;
+  }
+
+  .badge strong {
+    color: #f0c000;
+  }
+
+  /* ---- Section ---- */
+  .section {
+    margin-bottom: 48px;
+  }
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f05000;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #21262d;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::before {
+    content: '◆';
+    font-size: 10px;
+    color: #f05000;
+  }
+
+  .section p {
+    color: #c9d1d9;
+    margin-bottom: 12px;
+  }
+
+  /* ---- Feature Grid ---- */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #21262d;
+    border: 1px solid #21262d;
+  }
+
+  .feature-item {
+    background: #0d0d0d;
+    padding: 20px 24px;
+  }
+
+  .feature-item:nth-child(odd) {
+    border-right: 1px solid #21262d;
+  }
+
+  .feature-item strong {
+    display: block;
+    color: #e6e6e6;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+
+  .feature-item strong::before {
+    content: '▸ ';
+    color: #f05000;
+  }
+
+  .feature-item span {
+    font-size: 13px;
+    color: #8b949e;
+    line-height: 1.6;
+  }
+
+  /* ---- Code block ---- */
+  .code-block {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.8;
+    overflow-x: auto;
+    margin-bottom: 12px;
+    position: relative;
+  }
+
+  .code-block .prompt {
+    color: #8b949e;
+  }
+
+  .code-block .cmd {
+    color: #e6e6e6;
+  }
+
+  .code-block .comment {
+    color: #565656;
+    font-style: italic;
+  }
+
+  .code-block .highlight {
+    color: #f0c000;
+  }
+
+  .code-block .string {
+    color: #a5d6ff;
+  }
+
+  /* ---- Command Table ---- */
+  .cmd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .cmd-table th {
+    text-align: left;
+    padding: 10px 16px;
+    color: #8b949e;
+    font-weight: 400;
+    border-bottom: 1px solid #21262d;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .cmd-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #161b22;
+    color: #c9d1d9;
+  }
+
+  .cmd-table td:first-child {
+    color: #f0c000;
+    font-weight: 700;
+  }
+
+  .cmd-table tr:hover td {
+    background: #161b22;
+  }
+
+  /* ---- Tool list ---- */
+  .tool-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .tool-tag {
+    padding: 4px 12px;
+    border: 1px solid #21262d;
+    font-size: 12px;
+    color: #8b949e;
+    transition: all 0.2s;
+  }
+
+  .tool-tag:hover {
+    border-color: #f05000;
+    color: #f05000;
+  }
+
+  /* ---- Footer ---- */
+  .footer {
+    text-align: center;
+    padding: 40px 24px;
+    font-size: 12px;
+    color: #565656;
+    border-top: 1px solid #21262d;
+  }
+
+  .footer a {
+    color: #8b949e;
+    text-decoration: none;
+  }
+
+  .footer a:hover {
+    color: #f05000;
+  }
+
+  .footer .divider {
+    margin: 0 8px;
+    color: #30363d;
+  }
+
+  /* ---- Cursor blink ---- */
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 16px;
+    background: #f05000;
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+    margin-left: 2px;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 640px) {
+    .container { padding: 32px 16px 24px; }
+    h1 { font-size: 32px; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .feature-item:nth-child(odd) { border-right: none; }
+  }
+
+  /* ---- Philosophy quote style ---- */
+  .philosophy {
+    border-left: 3px solid #f05000;
+    padding: 16px 20px;
+    background: #161b22;
+    font-size: 13px;
+    color: #8b949e;
+    margin-top: 8px;
+  }
+
+  .philosophy strong {
+    color: #e6e6e6;
+  }
+
+  /* ---- Blinking terminal prompt in hero ---- */
+  .hero-prompt {
+    margin-top: 24px;
+    font-size: 13px;
+    color: #565656;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">✦ <span>Mangopi</span> CLI ✦</div>
+    <h1>mangopi-cli</h1>
+    <div class="subtitle">
+      <em>zero-dependency</em> &nbsp;·&nbsp; <em>local-first</em> &nbsp;·&nbsp; <em>terminal-native</em>
+    </div>
+    <div class="badge">
+      v0.1.3 &nbsp;·&nbsp; <strong>Apache 2.0</strong>
+    </div>
+    <div class="hero-prompt">
+      <span class="prompt">$</span> mangopi-cli<span class="cursor"></span>
+    </div>
+  </div>
+
+  <!-- Description -->
+  <div class="section">
+    <div class="section-title">About</div>
+    <p>
+      A lightweight AI coding assistant running directly in your terminal.
+      Inspired by <strong>Claude Code</strong>, built with <strong>zero external dependencies</strong> —
+      just the Python standard library.
+    </p>
+    <p>
+      Mangopi CLI brings AI-powered coding workflows to your terminal with instant startup,
+      autonomous file editing, shell execution, and context-aware conversation management.
+      No Electron, no Docker, no heavy frameworks.
+    </p>
+  </div>
+
+  <!-- Features -->
+  <div class="section">
+    <div class="section-title">Features</div>
+    <div class="feature-grid">
+      <div class="feature-item">
+        <strong>Zero Dependency</strong>
+        <span>Python standard library only — no pip install hell</span>
+      </div>
+      <div class="feature-item">
+        <strong>Instant Startup</strong>
+        <span>Launches in milliseconds, no heavy framework loading</span>
+      </div>
+      <div class="feature-item">
+        <strong>Tool Calling</strong>
+        <span>Read, write, edit, search, grep, bash — fully autonomous</span>
+      </div>
+      <div class="feature-item">
+        <strong>Context Management</strong>
+        <span>Auto-compacting, session persistence, memory injection</span>
+      </div>
+      <div class="feature-item">
+        <strong>Terminal UX</strong>
+        <span>Claude Code–style interface with spinner, diff, token stats</span>
+      </div>
+      <div class="feature-item">
+        <strong>Fully Hackable</strong>
+        <span>Single file, easy to read, modify, and extend</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Installation -->
+  <div class="section">
+    <div class="section-title">Installation</div>
+    <p>From PyPI:</p>
+    <div class="code-block">
+      <span class="prompt">$</span> <span class="cmd">pip install mangopi-cli</span><br>
+      <span class="prompt">$</span> <span class="cmd">mangopi-cli</span>
+    </div>
+    <p>Or from source:</p>
+    <div class="code-block">
+      <span class="prompt">$</span> <span class="cmd">git clone git@github.com:w4n9H/mangopi-cli.git</span><br>
+      <span class="prompt">$</span> <span class="cmd">cd mangopi-cli</span><br>
+      <span class="prompt">$</span> <span class="cmd">python mangopi_cli.py</span>
+    </div>
+  </div>
+
+  <!-- Configuration -->
+  <div class="section">
+    <div class="section-title">Configuration</div>
+    <div class="code-block">
+      <span class="comment"># Set your API endpoint</span><br>
+      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_KEY="your_api_key"</span></span><br>
+      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_API_URL="https://api.deepseek.com/chat/completions"</span></span><br>
+      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_MODEL="deepseek-v4-flash"</span></span><br>
+      <br>
+      <span class="comment"># Optional</span><br>
+      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_MAX_CONTEXT=1000000</span></span><br>
+      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_LANG=zh</span></span>
+    </div>
+  </div>
+
+  <!-- Commands -->
+  <div class="section">
+    <div class="section-title">Commands</div>
+    <table class="cmd-table">
+      <thead>
+        <tr><th>Command</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>/q</td><td>Quit the program</td></tr>
+        <tr><td>/n</td><td>Start a new session</td></tr>
+        <tr><td>/c</td><td>Compact current session</td></tr>
+        <tr><td>/h</td><td>Show help information</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Built-in Tools -->
+  <div class="section">
+    <div class="section-title">Built-in Tools</div>
+    <p>Mangopi CLI can autonomously inspect files, modify code, search projects, and execute shell commands:</p>
+    <div class="tool-list">
+      <span class="tool-tag">read</span>
+      <span class="tool-tag">write</span>
+      <span class="tool-tag">edit</span>
+      <span class="tool-tag">search</span>
+      <span class="tool-tag">grep</span>
+      <span class="tool-tag">bash</span>
+      <span class="tool-tag">attempt_completion</span>
+    </div>
+  </div>
+
+  <!-- Philosophy -->
+  <div class="section">
+    <div class="section-title">Philosophy</div>
+    <div class="philosophy">
+      <strong>Fast startup · Zero dependency · Local-first · Terminal-native</strong><br><br>
+      No Electron, Docker, Redis, or heavyweight AI frameworks.<br>
+      Just a fast and hackable AI coding assistant for the terminal.
+    </div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <a href="https://github.com/w4n9H/mangocli" target="_blank">GitHub</a>
+  <span class="divider">/</span>
+  Apache License 2.0
+  <span class="divider">/</span>
+  Built with ❤️ by <a href="#">moofs</a>
+</div>
+
+</body>
+</html>

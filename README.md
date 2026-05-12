@@ -47,9 +47,9 @@ mangopi-cli
 ## From Source
 
 ```bash
-git clone git@github.com:w4n9H/mangocli.git
-cd mangocli
-python mango_cli.py
+git clone git@github.com:w4n9H/mangopi-cli.git
+cd mangopi-cli
+python mangopi_cli.py
 ```
 
 ---
@@ -78,13 +78,13 @@ export MANGO_LANG=zh
 Start the CLI:
 
 ```bash
-mango-cli
+mangopi-cli
 ```
 
 or:
 
 ```bash
-python mango_cli.py
+python mangopi_cli.py
 ```
 
 Built-in commands:
