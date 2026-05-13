@@ -27,7 +27,7 @@ Homepage = "https://github.com/w4n9H/mangopi-cli"
 mangopi-cli = "mangopi_cli:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "version.__version__"}
+version = {attr = "mangopi_cli.__version__"}
 
 [tool.setuptools]
-py-modules = ["mangopi_cli", "version"]
+py-modules = ["mangopi_cli"]
