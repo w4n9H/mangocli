@@ -14,7 +14,10 @@ import glob as globlib
 import platform
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from version import __version__
+
+__version__ = "0.1.6"
+__author__ = "moofs"
+__license__ = "Apache License 2.0"
 
 # --- System Env ---
 MANGO_KEY = os.environ.get("MANGO_KEY")
@@ -723,7 +726,7 @@ def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retri
 
 def run_tool(tool_name, tool_args):
     try:
-        arg_preview = str(list(tool_args.values())[0])[:50]
+        arg_preview = str(list(tool_args.values())[0])[:80]
         console.tool_call(tool_name, arg_preview)
 
         if tool_name == "edit":
@@ -828,7 +831,6 @@ class SystemPrompt:
         return [
             "## Environment",
             "",
-            f"- Current date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"- Working directory: {project_root}",
             f"- Operating system: {os_info}",
             f"- Python version: {python_ver}",
@@ -911,7 +913,7 @@ def main():
                     helper()
                     continue
 
-            ctx.append_user(user_input)
+            ctx.append_user(f"{user_input}, Current date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
             # agentic loop: keep calling API until no more tool calls
             iteration = 0
