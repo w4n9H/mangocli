@@ -30,4 +30,4 @@ mangopi-cli = "mangopi_cli:main"
 version = {attr = "version.__version__"}
 
 [tool.setuptools]
-py-modules = ["mangopi_cli"]
+py-modules = ["mangopi_cli", "version"]
