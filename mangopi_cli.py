@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-
-__version__ = "0.1.3"
-__author__ = "moofs"
-__license__ = "Apache License 2.0"
-
 import copy
 import difflib
-import glob
 import json
 import os
 import re
@@ -20,6 +14,7 @@ import glob as globlib
 import platform
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from version import __version__
 
 # --- System Env ---
 MANGO_KEY = os.environ.get("MANGO_KEY")
@@ -290,7 +285,7 @@ def edit(args):
     replacement = (text.replace(old, new) if args.get("all") else text.replace(old, new, 1))
     with open(args["path"], "w") as f:
         f.write(replacement)
-    return f"edit {len(args['path'])} ok"
+    return f"edit {args['path']} ok"
 
 
 def search(args):
@@ -303,7 +298,7 @@ def search(args):
 def grep(args):
     pattern = re.compile(args["pat"])
     hits = []
-    for filepath in glob.glob(args.get("path", ".") + "/**", recursive=True):
+    for filepath in globlib.glob(args.get("path", ".") + "/**", recursive=True):
         try:
             for line_num, line in enumerate(open(filepath), 1):
                 if pattern.search(line):
@@ -494,7 +489,7 @@ class ContextManager:
 
     @staticmethod
     def estimated_tokens(msg: Dict[str, Any]) -> int:  # token 估算 (粗略)
-        content_len = len(msg.get("content", ""))
+        content_len = len(msg.get("content") or "")
         return content_len // 4 + 4
 
     def total_tokens(self) -> int: return sum(self.estimated_tokens(m) for m in self.messages)
@@ -583,16 +578,125 @@ class ContextManager:
         return self.get_messages()
 
 
+class BaseProvider:
+    def __init__(self, api_url: str, api_key: str, model: str):
+        self.api_url = api_url
+        self.api_key = api_key
+        self.model = model
+
+    def headers(self) -> dict:
+        return {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
+
+    def build_body(self, messages: List[Dict[str, Any]]) -> dict:
+        raise NotImplementedError
+
+    def parse_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    @staticmethod
+    def normalize_tool_calls(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+        raw_tool_calls = message.get("tool_calls", [])
+        if not raw_tool_calls:
+            return []
+        tool_calls = []
+
+        if not raw_tool_calls and message.get("function_call"):  # OpenAI old function_call fallback
+            raw_tool_calls = [{"id": "call_0", "type": "function", "function": message["function_call"]}]
+
+        for tc in raw_tool_calls:
+            function = tc.get("function", {})
+            args_str = function.get("arguments", "{}")
+            try:
+                arguments = json.loads(args_str) if args_str else {}
+            except json.JSONDecodeError:
+                arguments = {}
+            tool_calls.append({
+                "id": tc.get("id", ""),
+                "type": tc.get("type", "function"),
+                "name": function.get("name", ""),
+                "arguments": arguments,
+            })
+        return tool_calls
+
+    @staticmethod
+    def extract_reasoning(message: Dict[str, Any]) -> str:
+        if message.get("reasoning_content"):  # DeepSeek
+            return message["reasoning_content"]
+        if message.get("reasoning"):  # Qwen / Some OpenAI-compatible providers
+            return message["reasoning"]
+        content = message.get("content")  # Claude-style thinking blocks
+        if isinstance(content, list):
+            thoughts = []
+            for block in content:
+                if block.get("type") == "thinking":
+                    thoughts.append(block.get("thinking", ""))
+            return "\n".join(thoughts)
+        return ""
+
+
+class OpenAIProvider(BaseProvider):
+    def build_body(self, messages: List[Dict[str, Any]]) -> dict:
+        return {
+            "model": self.model,
+            "messages": messages,
+            "tools": tool_schema(),
+            "stream": False,
+        }
+
+    def parse_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        choices = response.get("choices", [])
+        if not choices:
+            return {
+                "finish_reason": None,
+                "raw_message": {},
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [],
+                "has_tool_calls": False,
+                "model": response.get("model", ""),
+                "usage": response.get("usage", {})
+            }
+        choice = choices[0]
+        message = choice.get("message", {})
+        tool_calls = self.normalize_tool_calls(message)
+        return {
+            "finish_reason": choice.get("finish_reason", "stop"),
+            "raw_message": message,
+            "content": message.get("content") or "",
+            "reasoning_content": self.extract_reasoning(message),
+            "tool_calls": tool_calls,
+            "has_tool_calls": bool(tool_calls),
+            "model": response.get("model", ""),
+            "usage": response.get("usage", {})
+        }
+
+
+class DeepSeekProvider(OpenAIProvider):
+    def build_body(self, messages: List[Dict[str, Any]]) -> dict:
+        body = super().build_body(messages)
+        body["extra_body"] = {"thinking": {"type": "enabled"}}
+        return body
+
+
+def create_provider() -> BaseProvider:
+    _base_url = MANGO_API_URL
+    if not _base_url.endswith("/chat/completions"):
+        _base_url = _base_url.rstrip("/") + "/chat/completions"
+    if "deepseek" in MANGO_MODEL:
+        return DeepSeekProvider(api_url=_base_url, api_key=MANGO_KEY, model=MANGO_MODEL)
+    return OpenAIProvider(api_url=_base_url, api_key=MANGO_KEY, model=MANGO_MODEL)
+
+
+provider = create_provider()
+
+
 def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retries: int = 3):
-    extra_body = {"thinking": {"type": "enabled"}}
-    body = {
-        "model": MANGO_MODEL, "messages": messages, "stream": False, "extra_body": extra_body, "tools": tool_schema()
-    }
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {MANGO_KEY}"}
     last_exception = None
-    request = urllib.request.Request(MANGO_API_URL, data=json.dumps(body).encode(), headers=headers, method="POST", )
     for attempt in range(max_retries + 1):
         try:
+            request = urllib.request.Request(
+                provider.api_url, data=json.dumps(provider.build_body(messages)).encode(),
+                headers=provider.headers(), method="POST", )
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 raw_data = response.read().decode("utf-8")
                 return json.loads(raw_data)
@@ -615,53 +719,6 @@ def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retri
         else:
             break  # 所有重试均已耗尽，跳出循环并抛出最后一个异常
     raise last_exception
-
-
-def parse_chat_completion(response: Dict[str, Any]) -> Dict[str, Any]:
-    choices = response.get("choices", [])
-    if not choices:
-        return {
-            "finish_reason": None,
-            "raw_message": {},
-            "content": "",
-            "reasoning_content": None,
-            "tool_calls": [],
-            "has_tool_calls": False,
-            "model": response.get("model", ""),
-            "usage": response.get("usage", {})
-        }
-
-    choice = choices[0]
-    message = choice.get("message", {})
-    finish_reason = choice.get("finish_reason", "stop")
-    content = message.get("content", "") or ""  # 提取文本内容
-    reasoning_content = message.get("reasoning_content", "") or ""  # 提取推理内容
-    raw_tool_calls = message.get("tool_calls", [])  # 处理工具调用
-    tool_calls = []
-    for tc in raw_tool_calls:
-        function = tc.get("function", {})
-        args_str = function.get("arguments", "{}")
-        try:
-            arguments = json.loads(args_str) if args_str else {}
-        except json.JSONDecodeError as e:
-            raise json.JSONDecodeError(f"工具调用参数响应非 JSON: {args_str[:200]}", e.doc, e.pos, ) from e
-        tool_calls.append({
-            "name": function.get("name", ""),
-            "arguments": arguments,
-            "id": tc.get("id", ""),
-            "type": tc.get("type", "function")
-        })
-
-    return {
-        "finish_reason": finish_reason,
-        "raw_message": message,
-        "content": content,
-        "reasoning_content": reasoning_content,
-        "tool_calls": tool_calls,
-        "has_tool_calls": bool(tool_calls),
-        "model": response.get("model", ""),
-        "usage": response.get("usage", {})
-    }
 
 
 def run_tool(tool_name, tool_args):
@@ -860,7 +917,7 @@ def main():
             iteration = 0
             while True:
                 console.start_spinner("Request...")
-                response = parse_chat_completion(chat_completion(ctx.prepare_for_api()))
+                response = provider.parse_response(chat_completion(ctx.prepare_for_api()))
                 console.end_spinner()
                 ctx.append_assistant(response["raw_message"])
 
