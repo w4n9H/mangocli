@@ -2,7 +2,7 @@
 
 # 项目名称
 project="mangopi-cli"
-version="0.1.3"
+version=$(python -c "with open('version.py') as f: print([line.split('=')[1].strip().strip('\"') for line in f if '__version__' in line][0])")
 echo "$project: $version"
 
 # 清理dist目录
