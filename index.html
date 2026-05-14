@@ -1,473 +1,1547 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mangopi CLI — 轻量级 AI 编程助手</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mangopi CLI // Deep Terminal AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0a0a0f;
+            --bg-card: #0e0e12;
+            --border: #1a1a20;
+            --text: #ffffff;
+            --text-dim: #888890;
+            --accent: #7dd3fc;
+            --accent-dark: #0ea5e9;
+            --green: #4ade80;
+            --orange: #fb923c;
+            --purple: #a78bfa;
+            --red: #f87171;
+        }
 
-  body {
-    background: #0d0d0d;
-    color: #c9d1d9;
-    font-family: 'JetBrains Mono', 'Courier New', monospace;
-    line-height: 1.7;
-    font-size: 15px;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #f5f5f7;
+                --bg-card: #ffffff;
+                --border: #e5e5e7;
+                --text: #111111;
+                --text-dim: #6b6b70;
+                --accent: #0284c7;
+                --accent-dark: #0369a1;
+                --green: #16a34a;
+                --orange: #ea580c;
+                --purple: #7c3aed;
+                --red: #dc2626;
+            }
+        }
 
-  /* CRT scanline effect */
-  body::after {
-    content: '';
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(255,255,255,0.015) 2px,
-      rgba(255,255,255,0.015) 4px
-    );
-    pointer-events: none;
-    z-index: 9999;
-  }
+        html {
+            scroll-behavior: smooth;
+        }
 
-  .container {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 60px 24px 40px;
-    flex: 1;
-  }
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Monaco', monospace;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            font-size: 14px;
+        }
 
-  /* ---- Header / Logo ---- */
-  .header {
-    margin-bottom: 60px;
-    text-align: center;
-  }
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
 
-  .logo {
-    font-size: 14px;
-    color: #565656;
-    letter-spacing: 4px;
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
+        /* Container */
+        .container {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
 
-  .logo span {
-    color: #f05000;
-  }
+        /* Header */
+        header {
+            position: sticky;
+            top: 0;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            z-index: 100;
+        }
 
-  h1 {
-    font-size: 48px;
-    font-weight: 700;
-    color: #e6e6e6;
-    letter-spacing: -1px;
-    margin-bottom: 12px;
-  }
+        .header-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 60px;
+        }
 
-  .subtitle {
-    font-size: 16px;
-    color: #8b949e;
-    border-top: 1px solid #21262d;
-    border-bottom: 1px solid #21262d;
-    padding: 12px 0;
-    display: inline-block;
-  }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            letter-spacing: -0.5px;
+        }
 
-  .subtitle em {
-    font-style: normal;
-    color: #58a6ff;
-  }
+        .logo-mark {
+            color: var(--accent);
+        }
 
-  /* ---- Version Badge ---- */
-  .badge {
-    display: inline-block;
-    margin-top: 16px;
-    padding: 4px 12px;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    font-size: 12px;
-    color: #8b949e;
-  }
+        nav {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
 
-  .badge strong {
-    color: #f0c000;
-  }
+        nav a {
+            font-size: 12px;
+            color: var(--text-dim);
+            transition: color 0.2s;
+        }
 
-  /* ---- Section ---- */
-  .section {
-    margin-bottom: 48px;
-  }
+        nav a:hover {
+            color: var(--text);
+        }
 
-  .section-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: #f05000;
-    text-transform: uppercase;
-    letter-spacing: 3px;
-    margin-bottom: 20px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid #21262d;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
 
-  .section-title::before {
-    content: '◆';
-    font-size: 10px;
-    color: #f05000;
-  }
+        .lang-switch {
+            font-size: 12px;
+            color: var(--text-dim);
+            cursor: pointer;
+        }
 
-  .section p {
-    color: #c9d1d9;
-    margin-bottom: 12px;
-  }
+        .lang-switch:hover {
+            color: var(--accent);
+        }
 
-  /* ---- Feature Grid ---- */
-  .feature-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1px;
-    background: #21262d;
-    border: 1px solid #21262d;
-  }
+        .github-link {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
 
-  .feature-item {
-    background: #0d0d0d;
-    padding: 20px 24px;
-  }
+        .github-link:hover {
+            color: var(--text);
+        }
 
-  .feature-item:nth-child(odd) {
-    border-right: 1px solid #21262d;
-  }
+        /* Hero */
+        .hero {
+            padding: 80px 0 60px;
+            text-align: center;
+        }
 
-  .feature-item strong {
-    display: block;
-    color: #e6e6e6;
-    font-size: 13px;
-    margin-bottom: 6px;
-  }
+        .hero-badges {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 32px;
+            flex-wrap: wrap;
+        }
 
-  .feature-item strong::before {
-    content: '▸ ';
-    color: #f05000;
-  }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            font-size: 11px;
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            color: var(--text-dim);
+        }
 
-  .feature-item span {
-    font-size: 13px;
-    color: #8b949e;
-    line-height: 1.6;
-  }
+        .badge-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s ease-in-out infinite;
+        }
 
-  /* ---- Code block ---- */
-  .code-block {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 16px 20px;
-    font-size: 13px;
-    line-height: 1.8;
-    overflow-x: auto;
-    margin-bottom: 12px;
-    position: relative;
-  }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
 
-  .code-block .prompt {
-    color: #8b949e;
-  }
+        .hero h1 {
+            font-size: clamp(36px, 8vw, 56px);
+            font-weight: 500;
+            letter-spacing: -2px;
+            margin-bottom: 16px;
+            line-height: 1.1;
+        }
 
-  .code-block .cmd {
-    color: #e6e6e6;
-  }
+        .hero h1 .accent {
+            color: var(--accent);
+        }
 
-  .code-block .comment {
-    color: #565656;
-    font-style: italic;
-  }
+        .hero-desc {
+            font-size: 15px;
+            color: var(--text-dim);
+            max-width: 520px;
+            margin: 0 auto 40px;
+        }
 
-  .code-block .highlight {
-    color: #f0c000;
-  }
+        .hero-actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
 
-  .code-block .string {
-    color: #a5d6ff;
-  }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            font-size: 13px;
+            border-radius: 8px;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            font-family: inherit;
+        }
 
-  /* ---- Command Table ---- */
-  .cmd-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg);
+        }
 
-  .cmd-table th {
-    text-align: left;
-    padding: 10px 16px;
-    color: #8b949e;
-    font-weight: 400;
-    border-bottom: 1px solid #21262d;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
+        .btn-primary:hover {
+            background: var(--accent-dark);
+        }
 
-  .cmd-table td {
-    padding: 10px 16px;
-    border-bottom: 1px solid #161b22;
-    color: #c9d1d9;
-  }
+        .btn-secondary {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
 
-  .cmd-table td:first-child {
-    color: #f0c000;
-    font-weight: 700;
-  }
+        .btn-secondary:hover {
+            border-color: var(--text-dim);
+        }
 
-  .cmd-table tr:hover td {
-    background: #161b22;
-  }
+        /* Terminal Demo */
+        .terminal-section {
+            margin-top: 48px;
+        }
 
-  /* ---- Tool list ---- */
-  .tool-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
-  }
+        .terminal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            text-align: left;
+        }
 
-  .tool-tag {
-    padding: 4px 12px;
-    border: 1px solid #21262d;
-    font-size: 12px;
-    color: #8b949e;
-    transition: all 0.2s;
-  }
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
 
-  .tool-tag:hover {
-    border-color: #f05000;
-    color: #f05000;
-  }
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+        }
 
-  /* ---- Footer ---- */
-  .footer {
-    text-align: center;
-    padding: 40px 24px;
-    font-size: 12px;
-    color: #565656;
-    border-top: 1px solid #21262d;
-  }
+        .terminal-dot:nth-child(1) { background: #ff5f57; }
+        .terminal-dot:nth-child(2) { background: #febc2e; }
+        .terminal-dot:nth-child(3) { background: #28c840; }
 
-  .footer a {
-    color: #8b949e;
-    text-decoration: none;
-  }
+        .terminal-title {
+            margin-left: 8px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
 
-  .footer a:hover {
-    color: #f05000;
-  }
+        .terminal-body {
+            padding: 20px;
+            font-size: 13px;
+            line-height: 1.8;
+        }
 
-  .footer .divider {
-    margin: 0 8px;
-    color: #30363d;
-  }
+        .terminal-line {
+            display: flex;
+            gap: 12px;
+        }
 
-  /* ---- Cursor blink ---- */
-  .cursor {
-    display: inline-block;
-    width: 8px;
-    height: 16px;
-    background: #f05000;
-    animation: blink 1s step-end infinite;
-    vertical-align: text-bottom;
-    margin-left: 2px;
-  }
+        .prompt {
+            color: var(--purple);
+        }
 
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
-  }
+        .output {
+            color: var(--text-dim);
+            padding-left: 24px;
+        }
 
-  /* ---- Responsive ---- */
-  @media (max-width: 640px) {
-    .container { padding: 32px 16px 24px; }
-    h1 { font-size: 32px; }
-    .feature-grid { grid-template-columns: 1fr; }
-    .feature-item:nth-child(odd) { border-right: none; }
-  }
+        .output .success {
+            color: var(--green);
+        }
 
-  /* ---- Philosophy quote style ---- */
-  .philosophy {
-    border-left: 3px solid #f05000;
-    padding: 16px 20px;
-    background: #161b22;
-    font-size: 13px;
-    color: #8b949e;
-    margin-top: 8px;
-  }
+        .output .warn {
+            color: var(--orange);
+        }
 
-  .philosophy strong {
-    color: #e6e6e6;
-  }
+        .output .info {
+            color: var(--accent);
+        }
 
-  /* ---- Blinking terminal prompt in hero ---- */
-  .hero-prompt {
-    margin-top: 24px;
-    font-size: 13px;
-    color: #565656;
-  }
-</style>
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 14px;
+            background: var(--accent);
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* Section */
+        section {
+            padding: 60px 0;
+        }
+
+        .section-header {
+            margin-bottom: 32px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            letter-spacing: 2px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            margin-bottom: 60px;
+        }
+
+        @media (max-width: 700px) {
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 400px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 16px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .stat-value.accent { color: var(--accent); }
+        .stat-value.green { color: var(--green); }
+        .stat-value.purple { color: var(--purple); }
+        .stat-value.orange { color: var(--orange); }
+        .stat-value.red { color: var(--red); }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 700px) {
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.2s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--accent);
+        }
+
+        .feature-icon {
+            font-size: 20px;
+            margin-bottom: 12px;
+        }
+
+        .feature-card h3 {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+
+        .feature-card p {
+            font-size: 12px;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+
+        /* Providers */
+        .providers-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 600px) {
+            .providers-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .provider-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .provider-card h3 {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: var(--accent);
+        }
+
+        .provider-card p {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .provider-card .provider-tag {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 2px 8px;
+            font-size: 10px;
+            background: var(--green);
+            color: var(--bg);
+            border-radius: 100px;
+        }
+
+        /* Install */
+        .install-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 600px) {
+            .install-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .install-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .install-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .install-card h3 {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .install-badge {
+            padding: 2px 8px;
+            font-size: 10px;
+            background: var(--green);
+            color: var(--bg);
+            border-radius: 100px;
+        }
+
+        .install-card p {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+        }
+
+        .code-block {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .code-block .cmd {
+            color: var(--accent);
+        }
+
+        /* Config */
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 700px) {
+            .config-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .env-list {
+            list-style: none;
+        }
+
+        .env-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 6px;
+        }
+
+        .env-item.required {
+            border-color: var(--accent);
+        }
+
+        .env-name {
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .env-desc {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .config-code {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .config-code code {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .config-code .cmd {
+            color: var(--accent);
+        }
+
+        /* Tools */
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        @media (max-width: 600px) {
+            .tools-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .tool-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 12px;
+            text-align: center;
+        }
+
+        .tool-item code {
+            font-size: 14px;
+            color: var(--accent);
+        }
+
+        .tool-item p {
+            margin-top: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        /* Commands */
+        .commands-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        @media (max-width: 500px) {
+            .commands-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .cmd-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+        }
+
+        .cmd-item code {
+            font-size: 14px;
+            color: var(--purple);
+        }
+
+        .cmd-item p {
+            margin-top: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        /* Safety */
+        .safety-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 600px) {
+            .safety-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .safety-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+        }
+
+        .safety-card .safety-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .safety-card h4 {
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .safety-card p {
+            font-size: 12px;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+
+        /* Architecture */
+        .arch-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 32px 0;
+        }
+
+        .arch-node {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px 20px;
+            text-align: center;
+            min-width: 110px;
+        }
+
+        .arch-node h4 {
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .arch-node p {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .arch-arrow {
+            color: var(--accent);
+            font-size: 18px;
+        }
+
+        /* Philosophy */
+        .philo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 700px) {
+            .philo-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .philo-items {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .philo-item {
+            display: flex;
+            gap: 14px;
+            padding: 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+        }
+
+        .philo-icon {
+            font-size: 18px;
+        }
+
+        .philo-item h4 {
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 3px;
+        }
+
+        .philo-item p {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .no-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .no-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            opacity: 0.5;
+        }
+
+        .no-cross {
+            color: var(--red);
+        }
+
+        .no-item span {
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        .license-box {
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+        }
+
+        .license-box p {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .license-box strong {
+            color: var(--text);
+        }
+
+        /* Footer */
+        footer {
+            padding: 32px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+
+        footer p {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        /* Lang toggles */
+        [data-lang="zh"] .lang-en { display: none; }
+        [data-lang="en"] .lang-zh { display: none; }
+
+        /* Mobile nav */
+        @media (max-width: 700px) {
+            nav { display: none; }
+        }
+    </style>
 </head>
-<body>
+<body data-lang="en">
+    <!-- Header -->
+    <header>
+        <div class="container header-inner">
+            <div class="logo">
+                <span class="logo-mark">//</span>
+                <span>MANGOPI CLI</span>
+            </div>
+            <nav>
+                <a href="#features">
+                    <span class="lang-en">Features</span>
+                    <span class="lang-zh">特性</span>
+                </a>
+                <a href="#install">
+                    <span class="lang-en">Install</span>
+                    <span class="lang-zh">安装</span>
+                </a>
+                <a href="#config">
+                    <span class="lang-en">Config</span>
+                    <span class="lang-zh">配置</span>
+                </a>
+                <a href="#tools">
+                    <span class="lang-en">Tools</span>
+                    <span class="lang-zh">工具</span>
+                </a>
+                <a href="#architecture">
+                    <span class="lang-en">Arch</span>
+                    <span class="lang-zh">架构</span>
+                </a>
+            </nav>
+            <div class="header-right">
+                <span class="lang-switch" onclick="toggleLang()">
+                    <span class="lang-en">中文</span>
+                    <span class="lang-zh">EN</span>
+                </span>
+                <a href="https://github.com/w4n9H/mangopi-cli" class="github-link" target="_blank">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.84 1.23 1.215 1.965 3.18 1.395 3.96 1.065.12-.81.42-1.395.765-1.71-2.745-.315-5.625-1.365-5.625-6.075 0-1.35.48-2.46 1.275-3.33-.135-.315-.555-1.59.12-3.285 0 0 1.035-.33 3.405 1.26.96-.27 1.98-.405 3 .405 1.02 0 2.04.135 3 .405 2.37-1.59 3.405-1.26 3.405-1.26.675 1.695.255 2.97.12 3.285.795.87 1.275 1.98 1.275 3.33 0 4.725-2.895 5.76-5.64 6.06.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.285 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </header>
 
-<div class="container">
+    <!-- Hero -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-badges">
+                <div class="badge">
+                    <span class="badge-dot"></span>
+                    <span class="lang-en">Fast</span>
+                    <span class="lang-zh">极速</span>
+                </div>
+                <div class="badge">
+                    <span class="lang-en">Zero Dependencies</span>
+                    <span class="lang-zh">零依赖</span>
+                </div>
+                <div class="badge">
+                    <span class="lang-en">Easy Change</span>
+                    <span class="lang-zh">易魔改</span>
+                </div>
+                <div class="badge">
+                    <span class="lang-en">Local Files</span>
+                    <span class="lang-zh">本地优先</span>
+                </div>
+                <div class="badge">
+                    <span class="lang-en">Claude Code Style</span>
+                    <span class="lang-zh">Claude Code 风格</span>
+                </div>
+            </div>
+            <h1>
+                MANGOPI <span class="accent">CLI</span>
+            </h1>
+            <p class="hero-desc">
+                <span class="lang-en">A lightweight, zero-dependency AI coding assistant for your terminal. Agentic tool-calling loop, smart context management, local session persistence. Just code.</span>
+                <span class="lang-zh">轻量级零依赖终端 AI 编码助手。Agentic 工具调用循环、智能上下文管理、本地会话持久化。只管写代码。</span>
+            </p>
+            <div class="hero-actions">
+                <a href="https://github.com/w4n9H/mangopi-cli" class="btn btn-primary" target="_blank">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.84 1.23 1.215 1.965 3.18 1.395 3.96 1.065.12-.81.42-1.395.765-1.71-2.745-.315-5.625-1.365-5.625-6.075 0-1.35.48-2.46 1.275-3.33-.135-.315-.555-1.59.12-3.285 0 0 1.035-.33 3.405 1.26.96-.27 1.98-.405 3 .405 1.02 0 2.04.135 3 .405 2.37-1.59 3.405-1.26 3.405-1.26.675 1.695.255 2.97.12 3.285.795.87 1.275 1.98 1.275 3.33 0 4.725-2.895 5.76-5.64 6.06.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.285 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                    <span class="lang-en">Get Started</span>
+                    <span class="lang-zh">开始使用</span>
+                </a>
+                <a href="#install" class="btn btn-secondary">
+                    <span class="lang-en">Install</span>
+                    <span class="lang-zh">安装</span>
+                </a>
+            </div>
 
-  <!-- Header -->
-  <div class="header">
-    <div class="logo">✦ <span>Mangopi</span> CLI ✦</div>
-    <h1>mangopi-cli</h1>
-    <div class="subtitle">
-      <em>zero-dependency</em> &nbsp;·&nbsp; <em>local-first</em> &nbsp;·&nbsp; <em>terminal-native</em>
-    </div>
-    <div class="badge">
-      v0.1.3 &nbsp;·&nbsp; <strong>Apache 2.0</strong>
-    </div>
-    <div class="hero-prompt">
-      <span class="prompt">$</span> mangopi-cli<span class="cursor"></span>
-    </div>
-  </div>
+            <!-- Terminal -->
+            <div class="terminal-section">
+                <div class="terminal">
+                    <div class="terminal-header">
+                        <span class="terminal-dot"></span>
+                        <span class="terminal-dot"></span>
+                        <span class="terminal-dot"></span>
+                        <span class="terminal-title">mangopi-cli</span>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="terminal-line">
+                            <span class="prompt">$</span>
+                            <span>mangopi-cli</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="info">Mango Cli v0.1.7 | deepseek-v4-flash | /home/user/project</span>
+                        </div>
+                        <div class="terminal-line">
+                            <span class="prompt">❯</span>
+                            <span class="lang-en">help me refactor utils.py to use dataclasses</span>
+                            <span class="lang-zh">帮我把 utils.py 重构为 dataclass</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="warn">• Tool call</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="info">› read</span> <span>src/utils.py</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="success">✓ Applied successfully</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="warn">• Tool call</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="info">› edit</span> <span>src/utils.py  -3 +8</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span>  -class User:</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="success">  +@dataclass</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="success">  +class User:</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="success">✓ Applied successfully</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span>round: 1 | tokens: 1.2k in / 0.8k out | ctx: <span class="success">5%</span></span>
+                        </div>
+                        <div class="terminal-line">
+                            <span class="cursor"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- Description -->
-  <div class="section">
-    <div class="section-title">About</div>
-    <p>
-      A lightweight AI coding assistant running directly in your terminal.
-      Inspired by <strong>Claude Code</strong>, built with <strong>zero external dependencies</strong> —
-      just the Python standard library.
-    </p>
-    <p>
-      Mangopi CLI brings AI-powered coding workflows to your terminal with instant startup,
-      autonomous file editing, shell execution, and context-aware conversation management.
-      No Electron, no Docker, no heavy frameworks.
-    </p>
-  </div>
+    <!-- Stats -->
+    <section>
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// STATS</span>
+                    <span class="lang-zh">// 统计</span>
+                </h2>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value accent">100%</div>
+                    <div class="stat-label">
+                        <span class="lang-en">Zero Deps</span>
+                        <span class="lang-zh">零依赖</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value green">7</div>
+                    <div class="stat-label">
+                        <span class="lang-en">Built-in Tools</span>
+                        <span class="lang-zh">内置工具</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value purple">2</div>
+                    <div class="stat-label">
+                        <span class="lang-en">Providers</span>
+                        <span class="lang-zh">模型接入</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value orange">2</div>
+                    <div class="stat-label">
+                        <span class="lang-en">Languages</span>
+                        <span class="lang-zh">语言</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value red">0</div>
+                    <div class="stat-label">
+                        <span class="lang-en">npm install</span>
+                        <span class="lang-zh">npm install</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- Features -->
-  <div class="section">
-    <div class="section-title">Features</div>
-    <div class="feature-grid">
-      <div class="feature-item">
-        <strong>Zero Dependency</strong>
-        <span>Python standard library only — no pip install hell</span>
-      </div>
-      <div class="feature-item">
-        <strong>Instant Startup</strong>
-        <span>Launches in milliseconds, no heavy framework loading</span>
-      </div>
-      <div class="feature-item">
-        <strong>Tool Calling</strong>
-        <span>Read, write, edit, search, grep, bash — fully autonomous</span>
-      </div>
-      <div class="feature-item">
-        <strong>Context Management</strong>
-        <span>Auto-compacting, session persistence, memory injection</span>
-      </div>
-      <div class="feature-item">
-        <strong>Terminal UX</strong>
-        <span>Claude Code–style interface with spinner, diff, token stats</span>
-      </div>
-      <div class="feature-item">
-        <strong>Fully Hackable</strong>
-        <span>Single file, easy to read, modify, and extend</span>
-      </div>
-    </div>
-  </div>
+    <!-- Features -->
+    <section id="features">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// FEATURES</span>
+                    <span class="lang-zh">// 特性</span>
+                </h2>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>
+                        <span class="lang-en">Zero Dependencies</span>
+                        <span class="lang-zh">零依赖</span>
+                    </h3>
+                    <p>
+                        <span class="lang-en">Pure Python stdlib — urllib, json, subprocess. No pip install required. Single .py file.</span>
+                        <span class="lang-zh">纯 Python 标准库 — urllib, json, subprocess。无需 pip 安装，单个 .py 文件。</span>
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>
+                        <span class="lang-en">Agentic Loop</span>
+                        <span class="lang-zh">Agentic 循环</span>
+                    </h3>
+                    <p>
+                        <span class="lang-en">Autonomous tool-calling loop: read → think → edit → verify. Multi-step reasoning without manual intervention.</span>
+                        <span class="lang-zh">自主工具调用循环：读取→思考→编辑→验证。多步推理无需人工干预。</span>
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📦</div>
+                    <h3>
+                        <span class="lang-en">Smart Context</span>
+                        <span class="lang-zh">智能上下文</span>
+                    </h3>
+                    <p>
+                        <span class="lang-en">Three-tier compact: micro (expire stale tool results), session-memory (retain recent), fallback (strip + trim). Auto triggers at 80%.</span>
+                        <span class="lang-zh">三级压缩：micro（过期工具结果）、session-memory（保留近期）、fallback（剥离+裁剪）。80% 阈值自动触发。</span>
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>
+                        <span class="lang-en">Safety Checks</span>
+                        <span class="lang-zh">安全检查</span>
+                    </h3>
+                    <p>
+                        <span class="lang-en">Dangerous command detection (rm -rf, sudo, chmod 777, mkfs...). User confirmation before execution. Path sandboxing.</span>
+                        <span class="lang-zh">危险命令检测（rm -rf, sudo, chmod 777, mkfs…）。执行前需用户确认。路径沙盒。</span>
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💾</div>
+                    <h3>
+                        <span class="lang-en">Session Persist</span>
+                        <span class="lang-zh">会话持久化</span>
+                    </h3>
+                    <p>
+                        <span class="lang-en">Sessions saved as JSON in .mangocli/session/. Corrupt files auto-backup. Resume where you left off.</span>
+                        <span class="lang-zh">会话以 JSON 保存在 .mangocli/session/。损坏文件自动备份。断点续聊。</span>
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>
+                        <span class="lang-en">i18n Ready</span>
+                        <span class="lang-zh">国际化</span>
+                    </h3>
+                    <p>
+                        <span class="lang-en">Built-in Chinese & English. Set MANGO_LANG=zh for Chinese UI output. System prompt adapts automatically.</span>
+                        <span class="lang-zh">内置中英文。设置 MANGO_LANG=zh 切换中文 UI 输出。System Prompt 自动适配。</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- Installation -->
-  <div class="section">
-    <div class="section-title">Installation</div>
-    <p>From PyPI:</p>
-    <div class="code-block">
-      <span class="prompt">$</span> <span class="cmd">pip install mangopi-cli</span><br>
-      <span class="prompt">$</span> <span class="cmd">mangopi-cli</span>
-    </div>
-    <p>Or from source:</p>
-    <div class="code-block">
-      <span class="prompt">$</span> <span class="cmd">git clone git@github.com:w4n9H/mangopi-cli.git</span><br>
-      <span class="prompt">$</span> <span class="cmd">cd mangopi-cli</span><br>
-      <span class="prompt">$</span> <span class="cmd">python mangopi_cli.py</span>
-    </div>
-  </div>
+    <!-- Providers -->
+    <section id="providers">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// PROVIDERS</span>
+                    <span class="lang-zh">// 模型接入</span>
+                </h2>
+            </div>
+            <div class="providers-grid">
+                <div class="provider-card">
+                    <h3>DeepSeek</h3>
+                    <p>
+                        <span class="lang-en">Auto-detect deepseek models. Enables thinking/reasoning mode via extra_body.</span>
+                        <span class="lang-zh">自动检测 deepseek 模型，通过 extra_body 启用 thinking 推理模式。</span>
+                    </p>
+                    <span class="provider-tag">
+                        <span class="lang-en">DEFAULT</span>
+                        <span class="lang-zh">默认</span>
+                    </span>
+                </div>
+                <div class="provider-card">
+                    <h3>OpenAI</h3>
+                    <p>
+                        <span class="lang-en">Full OpenAI-compatible API. Supports any /v1/chat/completions endpoint.</span>
+                        <span class="lang-zh">完整 OpenAI 兼容 API。支持任何 /v1/chat/completions 端点。</span>
+                    </p>
+                </div>
+                <div class="provider-card">
+                    <h3>
+                        <span class="lang-en">Any Compat</span>
+                        <span class="lang-zh">任意兼容</span>
+                    </h3>
+                    <p>
+                        <span class="lang-en">Qwen, Moonshot, etc. — as long as it speaks OpenAI protocol.</span>
+                        <span class="lang-zh">Qwen、Moonshot 等 — 只要支持 OpenAI 协议即可接入。</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- Configuration -->
-  <div class="section">
-    <div class="section-title">Configuration</div>
-    <div class="code-block">
-      <span class="comment"># Set your API endpoint</span><br>
-      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_KEY="your_api_key"</span></span><br>
-      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_API_URL="https://api.deepseek.com/chat/completions"</span></span><br>
-      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_MODEL="deepseek-v4-flash"</span></span><br>
-      <br>
-      <span class="comment"># Optional</span><br>
-      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_MAX_CONTEXT=1000000</span></span><br>
-      <span class="prompt">$</span> <span class="cmd"><span class="highlight">export</span> <span class="string">MANGO_LANG=zh</span></span>
-    </div>
-  </div>
+    <!-- Install -->
+    <section id="install">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// INSTALL</span>
+                    <span class="lang-zh">// 安装</span>
+                </h2>
+            </div>
+            <div class="install-grid">
+                <div class="install-card">
+                    <div class="install-header">
+                        <h3>PyPI</h3>
+                        <span class="install-badge">
+                            <span class="lang-en">RECOMMENDED</span>
+                            <span class="lang-zh">推荐</span>
+                        </span>
+                    </div>
+                    <p>
+                        <span class="lang-en">Simple pip install. Python 3.10+ required.</span>
+                        <span class="lang-zh">简单的 pip 安装。需要 Python 3.10+。</span>
+                    </p>
+                    <div class="code-block">
+                        <code><span class="cmd">pip</span> install mangopi-cli<br><span class="cmd">mangopi-cli</span></code>
+                    </div>
+                </div>
+                <div class="install-card">
+                    <div class="install-header">
+                        <h3>Source</h3>
+                    </div>
+                    <p>
+                        <span class="lang-en">Clone and run. Zero setup.</span>
+                        <span class="lang-zh">克隆即运行，零配置。</span>
+                    </p>
+                    <div class="code-block">
+                        <code><span class="cmd">git</span> clone git@github.com:w4n9H/mangopi-cli.git<br><span class="cmd">cd</span> mangopi-cli<br><span class="cmd">python</span> mangopi_cli.py</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- Commands -->
-  <div class="section">
-    <div class="section-title">Commands</div>
-    <table class="cmd-table">
-      <thead>
-        <tr><th>Command</th><th>Description</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>/q</td><td>Quit the program</td></tr>
-        <tr><td>/n</td><td>Start a new session</td></tr>
-        <tr><td>/c</td><td>Compact current session</td></tr>
-        <tr><td>/h</td><td>Show help information</td></tr>
-      </tbody>
-    </table>
-  </div>
+    <!-- Config -->
+    <section id="config">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// CONFIG</span>
+                    <span class="lang-zh">// 配置</span>
+                </h2>
+            </div>
+            <div class="config-grid">
+                <ul class="env-list">
+                    <li class="env-item required">
+                        <span class="env-name">MANGO_KEY</span>
+                        <span class="env-desc">
+                            <span class="lang-en">API key (required)</span>
+                            <span class="lang-zh">API 密钥（必填）</span>
+                        </span>
+                    </li>
+                    <li class="env-item required">
+                        <span class="env-name">MANGO_API_URL</span>
+                        <span class="env-desc">
+                            <span class="lang-en">Endpoint (default: deepseek)</span>
+                            <span class="lang-zh">端点（默认：deepseek）</span>
+                        </span>
+                    </li>
+                    <li class="env-item required">
+                        <span class="env-name">MANGO_MODEL</span>
+                        <span class="env-desc">
+                            <span class="lang-en">Model (default: deepseek-v4-flash)</span>
+                            <span class="lang-zh">模型（默认：deepseek-v4-flash）</span>
+                        </span>
+                    </li>
+                    <li class="env-item">
+                        <span class="env-name">MANGO_MAX_CONTEXT</span>
+                        <span class="env-desc">
+                            <span class="lang-en">Max tokens (default: 1M)</span>
+                            <span class="lang-zh">最大 token 数（默认：1M）</span>
+                        </span>
+                    </li>
+                    <li class="env-item">
+                        <span class="env-name">MANGO_LANG</span>
+                        <span class="env-desc">
+                            <span class="lang-en">Language: en / zh (default: en)</span>
+                            <span class="lang-zh">语言：en / zh（默认：en）</span>
+                        </span>
+                    </li>
+                </ul>
+                <div class="config-code">
+                    <div class="code-block">
+                        <code>
+<span class="cmd">export</span> MANGO_KEY=<span style="color:var(--green)">"your-key"</span><br>
+<span class="cmd">export</span> MANGO_API_URL=<span style="color:var(--green)">"https://api.deepseek.com"</span><br>
+<span class="cmd">export</span> MANGO_MODEL=<span style="color:var(--green)">"deepseek-v4-flash"</span><br>
+<br>
+<span class="lang-en"># optional</span><span class="lang-zh"># 可选</span><br>
+<span class="cmd">export</span> MANGO_MAX_CONTEXT=<span style="color:var(--green)">"1000000"</span><br>
+<span class="cmd">export</span> MANGO_LANG=<span style="color:var(--green)">"zh"</span>
+                        </code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- Built-in Tools -->
-  <div class="section">
-    <div class="section-title">Built-in Tools</div>
-    <p>Mangopi CLI can autonomously inspect files, modify code, search projects, and execute shell commands:</p>
-    <div class="tool-list">
-      <span class="tool-tag">read</span>
-      <span class="tool-tag">write</span>
-      <span class="tool-tag">edit</span>
-      <span class="tool-tag">search</span>
-      <span class="tool-tag">grep</span>
-      <span class="tool-tag">bash</span>
-      <span class="tool-tag">attempt_completion</span>
-    </div>
-  </div>
+    <!-- Tools -->
+    <section id="tools">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// TOOLS</span>
+                    <span class="lang-zh">// 工具</span>
+                </h2>
+            </div>
+            <div class="tools-grid">
+                <div class="tool-item">
+                    <code>read</code>
+                    <p>
+                        <span class="lang-en">Read files with offset & limit</span>
+                        <span class="lang-zh">读取文件（支持偏移和限制）</span>
+                    </p>
+                </div>
+                <div class="tool-item">
+                    <code>write</code>
+                    <p>
+                        <span class="lang-en">Write / overwrite files</span>
+                        <span class="lang-zh">写入/覆写文件</span>
+                    </p>
+                </div>
+                <div class="tool-item">
+                    <code>edit</code>
+                    <p>
+                        <span class="lang-en">Exact string replace + diff</span>
+                        <span class="lang-zh">精确字符串替换 + diff 预览</span>
+                    </p>
+                </div>
+                <div class="tool-item">
+                    <code>search</code>
+                    <p>
+                        <span class="lang-en">Glob pattern file search</span>
+                        <span class="lang-zh">Glob 模式文件搜索</span>
+                    </p>
+                </div>
+                <div class="tool-item">
+                    <code>grep</code>
+                    <p>
+                        <span class="lang-en">Regex content search</span>
+                        <span class="lang-zh">正则表达式内容搜索</span>
+                    </p>
+                </div>
+                <div class="tool-item">
+                    <code>bash</code>
+                    <p>
+                        <span class="lang-en">Shell exec with 60s timeout</span>
+                        <span class="lang-zh">Shell 执行（60s 超时）</span>
+                    </p>
+                </div>
+                <div class="tool-item">
+                    <code>completion</code>
+                    <p>
+                        <span class="lang-en">Task completion signal</span>
+                        <span class="lang-zh">任务完成信号</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- Philosophy -->
-  <div class="section">
-    <div class="section-title">Philosophy</div>
-    <div class="philosophy">
-      <strong>Fast startup · Zero dependency · Local-first · Terminal-native</strong><br><br>
-      No Electron, Docker, Redis, or heavyweight AI frameworks.<br>
-      Just a fast and hackable AI coding assistant for the terminal.
-    </div>
-  </div>
+    <!-- Architecture -->
+    <section id="architecture">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// ARCHITECTURE</span>
+                    <span class="lang-zh">// 架构</span>
+                </h2>
+            </div>
+            <div class="arch-flow">
+                <div class="arch-node">
+                    <h4>User</h4>
+                    <p>Terminal input</p>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <h4>SystemPrompt</h4>
+                    <p>
+                        <span class="lang-en">Dynamic assembly</span>
+                        <span class="lang-zh">动态装配</span>
+                    </p>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <h4>Provider</h4>
+                    <p>
+                        <span class="lang-en">API call + retry</span>
+                        <span class="lang-zh">API 调用 + 重试</span>
+                    </p>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <h4>Agentic Loop</h4>
+                    <p>
+                        <span class="lang-en">Tool exec + verify</span>
+                        <span class="lang-zh">工具执行 + 验证</span>
+                    </p>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <h4>Context</h4>
+                    <p>
+                        <span class="lang-en">Compact + persist</span>
+                        <span class="lang-zh">压缩 + 持久化</span>
+                    </p>
+                </div>
+            </div>
+            <!-- Commands -->
+            <div style="margin-top: 24px;">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <span class="lang-en">// COMMANDS</span>
+                        <span class="lang-zh">// 命令</span>
+                    </h2>
+                </div>
+                <div class="commands-grid">
+                    <div class="cmd-item">
+                        <code>/q</code>
+                        <p>
+                            <span class="lang-en">Quit</span>
+                            <span class="lang-zh">退出</span>
+                        </p>
+                    </div>
+                    <div class="cmd-item">
+                        <code>/n</code>
+                        <p>
+                            <span class="lang-en">New session</span>
+                            <span class="lang-zh">新建会话</span>
+                        </p>
+                    </div>
+                    <div class="cmd-item">
+                        <code>/c</code>
+                        <p>
+                            <span class="lang-en">Compact</span>
+                            <span class="lang-zh">手动压缩</span>
+                        </p>
+                    </div>
+                    <div class="cmd-item">
+                        <code>/h</code>
+                        <p>
+                            <span class="lang-en">Help</span>
+                            <span class="lang-zh">帮助</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-</div>
+    <!-- Philosophy -->
+    <section id="philo">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="lang-en">// PHILOSOPHY</span>
+                    <span class="lang-zh">// 理念</span>
+                </h2>
+            </div>
+            <div class="philo-grid">
+                <div class="philo-items">
+                    <div class="philo-item">
+                        <div class="philo-icon">⚡</div>
+                        <div>
+                            <h4>
+                                <span class="lang-en">Fast</span>
+                                <span class="lang-zh">快速</span>
+                            </h4>
+                            <p>
+                                <span class="lang-en">Millisecond cold start. No Node.js boot, no container spin-up.</span>
+                                <span class="lang-zh">毫秒级冷启动。无 Node.js 启动，无容器开销。</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="philo-item">
+                        <div class="philo-icon">📦</div>
+                        <div>
+                            <h4>
+                                <span class="lang-en">Minimal</span>
+                                <span class="lang-zh">极简</span>
+                            </h4>
+                            <p>
+                                <span class="lang-en">Single file, zero deps. Copy it and it works.</span>
+                                <span class="lang-zh">单文件，零依赖。复制即用。</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="philo-item">
+                        <div class="philo-icon">🏠</div>
+                        <div>
+                            <h4>
+                                <span class="lang-en">Local First</span>
+                                <span class="lang-zh">本地优先</span>
+                            </h4>
+                            <p>
+                                <span class="lang-en">Sessions stored in .mangocli/. Your code stays on your machine.</span>
+                                <span class="lang-zh">会话存储在 .mangocli/。代码不离开本机。</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="philo-item">
+                        <div class="philo-icon">🔓</div>
+                        <div>
+                            <h4>
+                                <span class="lang-en">Hackable</span>
+                                <span class="lang-zh">可魔改</span>
+                            </h4>
+                            <p>
+                                <span class="lang-en">One file to read, one file to hack. Fork it, own it.</span>
+                                <span class="lang-zh">一个文件可读可改。Fork 它，拥有它。</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px; letter-spacing: 2px; text-transform: uppercase;">
+                        <span class="lang-en">// NO THANKS</span>
+                        <span class="lang-zh">// 不需要</span>
+                    </h3>
+                    <div class="no-list">
+                        <div class="no-item">
+                            <span class="no-cross">✕</span>
+                            <span>Electron</span>
+                        </div>
+                        <div class="no-item">
+                            <span class="no-cross">✕</span>
+                            <span>Docker</span>
+                        </div>
+                        <div class="no-item">
+                            <span class="no-cross">✕</span>
+                            <span>Redis</span>
+                        </div>
+                        <div class="no-item">
+                            <span class="no-cross">✕</span>
+                            <span>npm / node_modules</span>
+                        </div>
+                        <div class="no-item">
+                            <span class="no-cross">✕</span>
+                            <span>
+                                <span class="lang-en">Heavy Frameworks</span>
+                                <span class="lang-zh">重型框架</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="license-box">
+                        <p>
+                            <strong>
+                                <span class="lang-en">License:</span>
+                                <span class="lang-zh">许可证：</span>
+                            </strong>
+                            Apache 2.0
+                        </p>
+                        <p>
+                            <span class="lang-en">Open source. Free forever. Fully hackable.</span>
+                            <span class="lang-zh">开源，永久免费，完全可魔改。</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-<!-- Footer -->
-<div class="footer">
-  <a href="https://github.com/w4n9H/mangocli" target="_blank">GitHub</a>
-  <span class="divider">/</span>
-  Apache License 2.0
-  <span class="divider">/</span>
-  Built with ❤️ by <a href="#">moofs</a>
-</div>
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>
+                <span class="lang-en">© 2024 MANGOPI CLI v0.1.7 · Apache License 2.0</span>
+                <span class="lang-zh">© 2024 MANGOPI CLI v0.1.7 · Apache 许可证 2.0</span>
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        let currentLang = localStorage.getItem('lang') || 'en';
+        document.body.setAttribute('data-lang', currentLang);
+
+        function toggleLang() {
+            currentLang = currentLang === 'en' ? 'zh' : 'en';
+            document.body.setAttribute('data-lang', currentLang);
+            localStorage.setItem('lang', currentLang);
+        }
+    </script>
 
 </body>
 </html>

@@ -4,6 +4,7 @@ import difflib
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -15,15 +16,17 @@ import platform
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 __author__ = "moofs"
 __license__ = "Apache License 2.0"
 
 # --- System Env ---
 MANGO_KEY = os.environ.get("MANGO_KEY")
-MANGO_API_URL = os.environ.get("MANGO_API_URL")
-MANGO_MODEL = os.environ.get("MANGO_MODEL")
-MANGO_MAX_CONTEXT = int(os.environ.get("MANGO_MAX_CONTEXT", 128000))
+MANGO_API_URL = os.environ.get("MANGO_API_URL", "https://api.deepseek.com")
+MANGO_MODEL = os.environ.get("MANGO_MODEL", "deepseek-v4-flash")
+MANGO_MAX_CONTEXT = int(os.environ.get("MANGO_MAX_CONTEXT", 1_000_000))
+LANGUAGE = os.environ.get("MANGO_LANG", "en").lower()
+
 
 project_root = os.getcwd()
 base_persist_dir = os.path.join(project_root, '.mangocli')
@@ -35,7 +38,69 @@ BLUE, CYAN, GREEN, YELLOW, RED, GREY, ORANGE = (
     "\033[34m", "\033[36m", "\033[32m", "\033[33m", "\033[31m", "\033[90m", "\033[38;2;245;78;0m")
 
 
+# --- i18n dict (zh, en)---
+I18N = {
+    "zh": {
+        "tool.call": "工具调用",
+        "tool.result.ok": "成功应用",
+        "tool.result.fail": "执行失败",
+        "llm.thinking": "思考中",
+        "llm.output": "输出",
+        "context.compact": "上下文压缩",
+        "context.compact.strategy": "策略",
+        "context.round": "轮次",
+        "context.tokens_in_out": "tokens 输入/输出",
+        "cli.welcome": "Mangopi CLI — 基于大模型的命令行编程助手",
+        "cli.help_intro": "内置命令:",
+        "cli.help_commands": {
+            "/q": "退出程序",
+            "/c": "手动压缩当前会话（释放上下文空间）",
+            "/n": "结束当前会话并创建一个全新的会话",
+            "/h": "显示本帮助信息"
+        },
+        "safety.warn.dangerous_command": "检测到危险命令",
+        "safety.danger.rm": "文件删除",
+        "safety.danger.mkfs": "磁盘格式化或分区",
+        "safety.danger.chmod": "危险权限修改",
+        "safety.danger.sudo": "提权操作",
+        "safety.danger.kill": "危险进程操作",
+        "safety.danger.env": "环境变量或系统配置修改",
+        "safety.danger.history": "清理历史/日志",
+    },
+    "en": {
+        "tool.call": "Tool call",
+        "tool.result.ok": "Applied successfully",
+        "tool.result.fail": "Execution failed",
+        "llm.thinking": "Thinking",
+        "llm.output": "Output",
+        "context.compact": "Context compact",
+        "context.compact.strategy": "Strategy",
+        "context.round": "round",
+        "context.tokens_in_out": "tokens in/out",
+        "cli.welcome": "Mangopi CLI — Large Model CLI Assistant",
+        "cli.help_intro": "Built-in commands:",
+        "cli.help_commands": {
+            "/q": "Quit",
+            "/c": "Manually compact current session",
+            "/n": "End current session and start a new one",
+            "/h": "Show this help info"
+        },
+        "safety.warn.dangerous_command": "Dangerous command detected",
+        "safety.danger.rm": "File deletion",
+        "safety.danger.mkfs": "Disk formatting or partition",
+        "safety.danger.chmod": "Dangerous permission change",
+        "safety.danger.sudo": "Privilege escalation",
+        "safety.danger.kill": "Dangerous process operation",
+        "safety.danger.env": "Environment or system config change",
+        "safety.danger.history": "History/log clearing",
+    }
+}
+
+
 def _c(text, color): return f"{color}{text}{RESET}"
+
+
+def _i18n(key: str): return I18N[LANGUAGE].get(key, "")
 
 
 # --- UI ---
@@ -63,7 +128,6 @@ class Printer:
                 self._render_spinner_frame()
 
     def _render_spinner_frame(self, frame: str = "⠋"):
-        # text = f"{frame} {self._spinner_message}"
         text = f"{_c(frame, ORANGE)} {_c(self._spinner_message, ORANGE)}"
         sys.stdout.write("\r" + text)
         sys.stdout.flush()
@@ -72,18 +136,14 @@ class Printer:
         self._write_line()
         self._write_line(_c(f"• {title}", ORANGE))
 
-    def kv(self, data: Dict[str, Any]):
-        for k, v in data.items():
-            self._write_line(f"{_c(str(k), GREY)}{_c(': ', GREY)}{_c(str(v), GREY)}")
-
     def tool_call(self, name: str, desc: str):
-        self.section("Tool Call")
+        self.section(_i18n("tool.call"))
         self._write_line(f"{_c('› ', GREY)}{_c(name, CYAN)}  {_c(desc, GREY)}")
 
-    def tool_result(self, ok=True, meta="applied"):
+    def tool_result(self, ok=True):
         icon = "✓" if ok else "✗"
         color = GREEN if ok else RED
-        suffix = f" {meta}" if meta else ""
+        suffix = _i18n("tool.result.ok") if ok else _i18n("tool.result.fail")
         self._write_line(f"  {_c(icon, color)}{_c(suffix, GREY)}")
 
     def success(self, msg: str):
@@ -102,18 +162,17 @@ class Printer:
         self._write_line(f"{DIM}{'─' * min(os.get_terminal_size().columns, 80)}{RESET}")
 
     def thinking(self, content: str):
-        self.section("Thinking")
+        self.section(_i18n("llm.thinking"))
         for line in content.splitlines():
             self._write_line("  " + _c(line, GREY))
 
     def output(self, content: str):
-        self.section("Output")
+        self.section(_i18n("llm.output"))
         for line in content.splitlines():
             self._write_line("  " + _c(line, GREY))
 
     def token_usage(self, iteration: int, input_tokens: int, output_tokens: int, context_tokens: int, max_context: int):
-        def fmt(n):
-            return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+        def fmt(n): return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
         ratio = context_tokens / max_context if max_context else 0
         percent = int(ratio * 100)
@@ -121,7 +180,8 @@ class Printer:
 
         self._write_line()
         self._write_line(
-            _c(f"round: {iteration} | tokens: {fmt(input_tokens)} in / {fmt(output_tokens)} out |  ctx: ", GREY) +
+            _c(f"{_i18n('context.round')}: {iteration} | "
+               f"{_i18n('context.tokens_in_out')}: {fmt(input_tokens)} in / {fmt(output_tokens)} out |  ctx: ", GREY) +
             _c(f"{percent}%", color))
 
     def compact_status(self, before_tokens: int, after_tokens: int, max_context: int, strategy: str = "auto"):
@@ -130,8 +190,8 @@ class Printer:
         percent = int(ratio * 100)
         color = GREEN if percent < 50 else YELLOW if percent < 70 else RED
 
-        self.section("Compact")
-        self._write_line(f"  {_c('strategy', GREY)} {_c(strategy, ORANGE)}")
+        self.section(_i18n("context.compact"))
+        self._write_line(f"  {_c(_i18n('context.compact.strategy'), GREY)} {_c(strategy, ORANGE)}")
         self._write_line(
             f"  {_c('tokens', GREY)} "
             f"{_c(f'{before_tokens:,}', RED)}"
@@ -202,9 +262,6 @@ class Printer:
 console = Printer()
 
 
-# --- i18n ---
-
-
 # --- Init dir, Base data ---
 def initialize_system():
     if not os.path.exists(base_persist_dir):
@@ -214,19 +271,16 @@ def initialize_system():
 
 
 def helper():
-    console.text("Mango CLI — 基于大模型的命令行编程助手")
-    console.text("内置命令:")
-    console.text("  /q, /quit      退出程序")
-    console.text("  /c, /compact   手动压缩当前会话（释放上下文空间）")
-    console.text("  /n, /new       结束当前会话并创建一个全新的会话")
-    console.text("  /h, /help      显示本帮助信息")
+    console.text(_i18n("cli.welcome"))
+    console.text(_i18n("cli.help_intro"))
+    for cmd, desc in I18N.get(LANGUAGE, {}).get("cli.help_commands", {}).items():
+        console.text(f"  {cmd:<6} {desc}")
 
 
 # --- Utils function ---
 def _check_command_safety(command: str):
-    # 1.文件删除命令， 2.系统格式化和分区操作，3.危险权限修改， 4.提权命令，5.危险进程操作，6.环境变量和系统配置，7.历史和日志清理
     dangerous_patterns = [
-        (r'\brm\s+.*-[rf]', 1), (r'\brm\s+-[rf]', 1), (r'\bunlink\b', 1),
+        (r'\brm\s+.*-[rf]', 1), (r'\brm\s+-[rf]', 1), (r'\bunlink\b', 1), (r'\brm\s+(-[rf]+\s+)?.*', 1),
         (r'\bmkfs\b', 2), (r'\bfdisk\b', 2), (r'\bparted\b', 2), (r'\bdd\s+.*if=.*of=', 2),
         (r'\bchmod\s+(?:-[a-zA-Z]+\s+)*\d*7\d*7\b', 3), (r'\bchmod\s+777\b', 3), (r'\bchmod\s+\d*7\d*7\b', 3),
         (r'\bchown\s+.*root\b', 3),
@@ -235,12 +289,16 @@ def _check_command_safety(command: str):
         (r'\bexport\s+PATH=', 6), (r'\bunset\s+PATH\b', 6), (r'>>?\s*/etc/', 6), (r'\becho\s+.*>\s*/etc/', 6),
         (r'\bhistory\s+-c\b', 7), (r'>\s*/dev/null\s+2>&1', 7),
     ]
+    dangerous_i18n = {
+        1: "safety.danger.rm", 2: "safety.danger.mkfs", 3: "safety.danger.chmod", 4: "safety.danger.sudo",
+        5: "safety.danger.kill", 6: "safety.danger.env", 7: "safety.danger.history"
+    }
     command = command.strip()
     if not command:
         return False, None
-    for pattern, reason in dangerous_patterns:
+    for pattern, reason_id in dangerous_patterns:
         if re.search(pattern, command, re.IGNORECASE):
-            return True, f"危险命令: {reason}"
+            return True, f"{_i18n(dangerous_i18n[reason_id])}"
     return False, None
 
 
@@ -693,7 +751,7 @@ def create_provider() -> BaseProvider:
 provider = create_provider()
 
 
-def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retries: int = 3):
+def chat_completion(messages: List[Dict[str, str]], timeout: int = 300, max_retries: int = 3):
     last_exception = None
     for attempt in range(max_retries + 1):
         try:
@@ -708,7 +766,7 @@ def chat_completion(messages: List[Dict[str, str]], timeout: int = 60, max_retri
                 last_exception = e
             else:
                 raise
-        except (urllib.error.URLError, json.JSONDecodeError) as e:
+        except (urllib.error.URLError, json.JSONDecodeError, socket.timeout) as e:
             last_exception = e
         except Exception as e:
             raise e
