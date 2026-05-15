@@ -16,7 +16,7 @@ import platform
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 __author__ = "moofs"
 __license__ = "Apache License 2.0"
 
@@ -549,9 +549,7 @@ class ContextManager:
     def get_latest(self, n: int = 10) -> List[Dict]: return self.messages[-n:]
 
     @staticmethod
-    def estimated_tokens(msg: Dict[str, Any]) -> int:  # token 估算 (粗略)
-        content_len = len(msg.get("content") or "")
-        return content_len // 4 + 4
+    def estimated_tokens(msg: Dict[str, Any]) -> int: return len(json.dumps(msg, ensure_ascii=False)) // 4 + 4
 
     def total_tokens(self) -> int: return sum(self.estimated_tokens(m) for m in self.messages)
 
@@ -844,51 +842,45 @@ class SystemPrompt:
         self.sections.append(("base_intro", self._build_base_intro()))
         self.sections.append(("tool_guidance", self._build_tool_guidance()))
         self.sections.append(("safety", self._build_safety()))
+        self.sections.append(("builtin_rules", self._build_builtin_rules()))
         self.sections.append(("language", self._build_language()))
         self.sections.append(("memory", self._build_memory()))
         self.sections.append(("environment", self._build_environment()))
 
     @staticmethod
-    def _build_base_intro() -> list[str]:  # 基础身份和核心约束
+    def _build_base_intro() -> List[str]:  # 基础身份和核心约束
         return [
             "You are an interactive agent that helps users with software engineering tasks. Use the instructions "
-            "below and the tools available to you to assist the user.",
-            "",
+            "below and the tools available to you to assist the user.\n",
             "IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are "
             "for helping the user with programming. For file paths, always prefer absolute paths when possible. If "
-            "you need to read a directory, use the bash tool (ls) because the read tool cannot read directories.",
+            "you need to read a directory, use the bash tool (ls) because the read tool cannot read directories.\n",
         ]
 
     @staticmethod
-    def _build_tool_guidance() -> list[str]:  # 工具使用指导
+    def _build_tool_guidance() -> List[str]:  # 工具使用指导
         return [
-            "## Tool Selection Guidelines",
-            "You have access to the following dedicated tools: read/write/edit/search/grep/bash/attempt_completion.",
-            "",
+            "## Tool Selection Guidelines\n",
+            "You have access to the following dedicated tools: read/write/edit/search/grep/bash/attempt_completion.\n",
             "- For reading files: use **read**.",
             "- For writing or overwriting files: use **write**.",
-
             "- For replacing exact strings within a file: use **edit**. Prefer edit when you only need to change a "
             "small portion of a file.",
-
             "- For searching file names/paths: use **search** with a glob pattern.",
             "- For searching file content with regex: use **grep**.",
-
             "- Only use **bash** when no dedicated tool can accomplish the task, or for system commands (e.g., "
             "installing packages, running tests, managing directories).",
-
             "- Always use **attempt_completion** to present the final result to the user.",
             "- When using edit, ensure the `old` string is unique or set `all` to true.",
         ]
 
     @staticmethod
-    def _build_environment() -> list[str]:  # 动态环境信息注入
+    def _build_environment() -> List[str]:  # 动态环境信息注入
         os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
         python_ver = sys.version.split()[0]
 
         return [
-            "## Environment",
-            "",
+            "## Environment\n",
             f"- Working directory: {project_root}",
             f"- Operating system: {os_info}",
             f"- Python version: {python_ver}",
@@ -896,35 +888,77 @@ class SystemPrompt:
         ]
 
     @staticmethod
-    def _build_language() -> list[str]:
+    def _build_language() -> List[str]:
         """语言偏好(可通过环境变量 MANGO_LANG 配置), 若未设置则默认使用 English. """
         lang = os.environ.get("MANGO_LANG", "zh")
         if lang.lower() == "chinese" or lang.lower() == "zh":
-            return ["## Language", f"You should communicate with the user in Chinese (Simplified)."]
-        return ["## Language", f"You should communicate with the user in {lang}."]
+            return ["## Language\n", f"You should communicate with the user in Chinese (Simplified)."]
+        return ["## Language\n", f"You should communicate with the user in {lang}."]
 
     @staticmethod
-    def _build_memory() -> list[str]:
+    def _build_memory() -> List[str]:
         """ 记忆加载, .mangocli/MEMORY.md 存在，则将其内容作为记忆注入. """
         memory_path = os.path.join(project_root, ".mangocli", "MANGO.md")
         if not os.path.exists(memory_path):
-            return ["## Memory", "No persistent memory available."]
+            return ["## Memory\n", "No persistent memory available.\n"]
         if os.path.getsize(memory_path) == 0:
-            return ["## Memory", "No persistent memory available."]
+            return ["## Memory\n", "No persistent memory available.\n"]
         content = open(memory_path, "r", encoding="utf-8").readlines()
-        return [f"## Persisted Memory", ""] + content
+        return [f"## Persisted Memory\n"] + content
 
     @staticmethod
-    def _build_safety() -> list[str]:
+    def _build_safety() -> List[str]:
         """ 安全边界提示. 要求模型在执行前对危险命令进行确认，并遵守工具的安全检查。"""
         return [
-            "## Safety",
-            "",
+            "## Safety\n",
             "- Before executing any command that modifies the file system, deletes files, changes permissions, "
             "or performs system administration, you MUST ensure the command is safe and the user has confirmed if "
             "necessary.",
             "- Do not attempt to access files outside the project root unless explicitly required and confirmed by "
-            "the user.",
+            "the user.\n",
+        ]
+
+    @staticmethod
+    def _build_builtin_rules() -> List[str]:
+        return [
+            "## Built-in Rules\n",
+            "### 1. Think Before Coding\n",
+            "**Don't assume. Don't hide confusion. Surface tradeoffs.**\n",
+            "- **State assumptions explicitly** — If uncertain, ask rather than guess",
+            "- **Present multiple interpretations** — Don't pick silently when ambiguity exists",
+            "- **Push back when warranted** — If a simpler approach exists, say so",
+            "- **Stop when confused** — Name what's unclear and ask for clarification\n",
+            "### 2. Simplicity First\n",
+            "**inimum code that solves the problem. Nothing speculative.**\n",
+            "- No features beyond what was asked",
+            "- No abstractions for single-use code",
+            "- No 'flexibility' or 'configurability' that wasn't requested",
+            "- No error handling for impossible scenarios",
+            "- If 200 lines could be 50, rewrite it\n",
+            "### 3. Surgical Changes\n",
+            "**Touch only what you must. Clean up only your own mess.**\n",
+            "When editing existing code:\n",
+            "- Don't 'improve' adjacent code, comments, or formatting",
+            "- Don't refactor things that aren't broken",
+            "- Match existing style, even if you'd do it differently",
+            "- If you notice unrelated dead code, mention it — don't delete it\n",
+            "When your changes create orphans:\n",
+            "- Remove imports/variables/functions that YOUR changes made unused",
+            "- Don't remove pre-existing dead code unless asked\n",
+            "### 4. Goal-Driven Execution\n",
+            "**Define success criteria. Loop until verified.**\n",
+            "Transform imperative tasks into verifiable goals:\n",
+            "| Instead of... | Transform to... |",
+            "|--------------|-----------------|",
+            "| 'Add validation' | 'Write tests for invalid inputs, then make them pass' |",
+            "| 'Fix the bug' | 'Write a test that reproduces it, then make it pass' |",
+            "| 'Refactor X' | 'Ensure tests pass before and after' |\n",
+            "For multi-step tasks, state a brief plan:\n",
+            "```",
+            "1. [Step] → verify: [check]",
+            "2. [Step] → verify: [check]",
+            "3. [Step] → verify: [check]",
+            "```\n"
         ]
 
     def assemble(self) -> str:  # 将所有 section 按顺序拼接成完整的 system prompt。
