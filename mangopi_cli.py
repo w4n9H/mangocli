@@ -16,7 +16,12 @@ import platform
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-__version__ = "0.1.8"
+try:
+    import readline  # 解决 Unix-like 系统中 input 无法正常删除中文的问题
+except Exception:
+    pass
+
+__version__ = "0.1.9"
 __author__ = "moofs"
 __license__ = "Apache License 2.0"
 
@@ -683,6 +688,8 @@ class BaseProvider:
             return message["reasoning_content"]
         if message.get("reasoning"):  # Qwen / Some OpenAI-compatible providers
             return message["reasoning"]
+        if message.get("reasoning_details"):  # Minimax providers
+            return message["reasoning_details"]
         content = message.get("content")  # Claude-style thinking blocks
         if isinstance(content, list):
             thoughts = []
@@ -731,9 +738,17 @@ class OpenAIProvider(BaseProvider):
 
 
 class DeepSeekProvider(OpenAIProvider):
-    def build_body(self, messages: List[Dict[str, Any]]) -> dict:
+    def build_body(self, messages: List[Dict[str, Any]], thinking: str = "enabled", effort: str = "max") -> dict:
         body = super().build_body(messages)
-        body["extra_body"] = {"thinking": {"type": "enabled"}}
+        body.update({"thinking": {"type": thinking}})
+        body.update({"reasoning_effort": effort})
+        return body
+
+
+class MiniMaxProvider(OpenAIProvider):
+    def build_body(self, messages: List[Dict[str, Any]], reasoning_split: bool = True) -> dict:
+        body = super().build_body(messages)
+        body.update({"reasoning_split": True})
         return body
 
 
@@ -741,8 +756,10 @@ def create_provider() -> BaseProvider:
     _base_url = MANGO_API_URL
     if not _base_url.endswith("/chat/completions"):
         _base_url = _base_url.rstrip("/") + "/chat/completions"
-    if "deepseek" in MANGO_MODEL:
+    if "deepseek" in MANGO_MODEL.lower():
         return DeepSeekProvider(api_url=_base_url, api_key=MANGO_KEY, model=MANGO_MODEL)
+    if "minimax" in MANGO_MODEL.lower():
+        return MiniMaxProvider(api_url=_base_url, api_key=MANGO_KEY, model=MANGO_MODEL)
     return OpenAIProvider(api_url=_base_url, api_key=MANGO_KEY, model=MANGO_MODEL)
 
 
